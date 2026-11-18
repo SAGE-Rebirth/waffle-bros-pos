@@ -1,32 +1,28 @@
-"""Google Sheets sync.
+"""Google Sheet sync through a Google Apps Script web app.
 
-Appends new orders, order items and expenses as rows, and rewrites the Daily, Items and Monthly
-summary tabs, so the numbers can be reviewed outside the shop. Other tabs (such as an Overview tab
-with charts) are never touched.
+The owner pastes ``integrations/apps_script.gs`` into the spreadsheet (Extensions -> Apps Script),
+sets the same secret there as in Admin -> Modules -> Google Sheet sync, and deploys it as a web app.
+Each sync POSTs one JSON payload to that web app: new orders, order items and expenses to append,
+and the Daily, Items and Monthly summary tabs to rewrite. Other tabs (such as an Overview tab with
+charts) are never touched. No Google Cloud project or service-account key is needed.
 
-Setup (once): create a Google Cloud service account, download its JSON key, share the spreadsheet
-with the service account's email as Editor, then fill in Admin -> Modules -> Google Sheet sync.
-
-The service-account JWT is signed with google-auth; every HTTP call goes through httpx. Database
-work happens in short synchronous sections (SQLite is local and fast), never across a network call.
+Every HTTP call goes through httpx. Database work happens in short synchronous sections (SQLite is
+local and fast), never across a network call. Rows are marked synced only after the script
+confirms it wrote them.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import math
-import time
+import re
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from pathlib import Path
+from importlib import resources
 from typing import Any
 
 import httpx
-from google.auth import crypt
-from google.auth import jwt as google_jwt
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
@@ -41,14 +37,10 @@ from waffle_pos.services.targets import money
 
 logger = logging.getLogger(__name__)
 
-SCOPE = "https://www.googleapis.com/auth/spreadsheets"
-DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token"  # noqa: S105 - a public endpoint, not a secret
-JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer"
-SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
+WEB_APP_URL_RE = re.compile(r"^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$")
 ORDER_BATCH = 500  # rows per run, so one huge backlog can't time out a sync
 DAILY_DAYS = 90
-TOKEN_REFRESH_MARGIN = 60.0  # seconds before expiry to fetch a fresh token
-HTTP_TIMEOUT = 30.0
+HTTP_TIMEOUT = 60.0  # Apps Script can take a few seconds to start
 
 TABS: dict[str, list[str]] = {
     "Orders": [
@@ -96,28 +88,18 @@ TABS: dict[str, list[str]] = {
 }
 """Tabs the sync writes. Orders, OrderItems and Expenses only ever get new rows appended;
 Daily, Items and Monthly are summaries rewritten in full on every sync."""
-SUMMARY_TABS = ("Daily", "Items", "Monthly")
-SUMMARY_MAX_ROW = 2000
 
 Cell = str | int | float
 Row = list[Cell]
 
 
 class SheetsError(RuntimeError):
-    """Sync failed: bad credentials file, Google refused the login, or a Sheets API call failed."""
+    """Sync failed: the web app could not be reached, refused the secret, or reported an error."""
 
 
-@dataclass
-class _Token:
-    value: str
-    expires_at: float  # time.time() seconds
-
-
-_token_cache: dict[tuple[str, str], _Token] = {}
-
-
-def clear_token_cache() -> None:
-    _token_cache.clear()
+def apps_script_source() -> str:
+    """The Apps Script the owner pastes into the spreadsheet (also shown in docs/README)."""
+    return resources.files("waffle_pos.integrations").joinpath("apps_script.gs").read_text("utf-8")
 
 
 def _round_half_up(x: float) -> int:
@@ -125,111 +107,44 @@ def _round_half_up(x: float) -> int:
     return math.floor(x + 0.5)
 
 
-def _load_credentials(path: str) -> dict[str, Any]:
-    try:
-        info = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
-    except FileNotFoundError as e:
-        raise SheetsError(f"Credentials file not found: {path}") from e
-    except (OSError, ValueError) as e:
-        raise SheetsError(f"Could not read credentials file {path}: {e}") from e
-    if not isinstance(info, dict) or not info.get("client_email") or not info.get("private_key"):
-        raise SheetsError(f"{path} is not a service-account key (needs client_email and private_key)")
-    return info
+FORMULA_START = ("=", "+", "-", "@")
 
 
-async def _access_token(client: httpx.AsyncClient, credentials_path: str) -> str:
-    info = _load_credentials(credentials_path)
-    token_uri = str(info.get("token_uri") or DEFAULT_TOKEN_URI)
-    cache_key = (str(info["client_email"]), token_uri)
-    cached = _token_cache.get(cache_key)
-    if cached and cached.expires_at > time.time() + TOKEN_REFRESH_MARGIN:
-        return cached.value
-
-    try:
-        signer = crypt.RSASigner.from_service_account_info(info)  # type: ignore[no-untyped-call]
-    except (ValueError, KeyError) as e:
-        raise SheetsError(f"The private key in {credentials_path} is not valid: {e}") from e
-    issued = int(time.time())
-    claims = {
-        "iss": info["client_email"],
-        "scope": SCOPE,
-        "aud": token_uri,
-        "iat": issued,
-        "exp": issued + 3600,
-    }
-    jwt_bytes: bytes = google_jwt.encode(signer, claims)  # type: ignore[no-untyped-call]
-    assertion = jwt_bytes.decode("ascii")
-
-    try:
-        res = await client.post(token_uri, data={"grant_type": JWT_BEARER_GRANT, "assertion": assertion})
-    except httpx.HTTPError as e:
-        raise SheetsError(f"Could not reach Google to sign in: {e}") from e
-    if res.is_error:
-        raise SheetsError(f"Google auth failed: {res.status_code} {res.text}")
-    body = res.json()
-    token = _Token(
-        value=str(body["access_token"]), expires_at=time.time() + float(body.get("expires_in", 3600))
-    )
-    _token_cache[cache_key] = token
-    return token.value
-
-
-class _SheetsApi:
-    def __init__(self, client: httpx.AsyncClient, token: str, spreadsheet_id: str) -> None:
-        self.client = client
-        self.headers = {"Authorization": f"Bearer {token}"}
-        self.base = f"{SHEETS_API}/{spreadsheet_id}"
-
-    async def call(
-        self, method: str, path: str, *, params: dict[str, str] | None = None, body: Any = None
-    ) -> Any:
+def _cell(value: Cell) -> Cell:
+    """Text typed at the counter (customer name, note) must never run as a formula in the sheet,
+    e.g. ``=IMPORTDATA(...)``. A leading apostrophe makes Sheets keep it as plain text."""
+    if isinstance(value, str) and value.startswith(FORMULA_START):
         try:
-            res = await self.client.request(
-                method, self.base + path, params=params, json=body, headers=self.headers
-            )
-        except httpx.HTTPError as e:
-            raise SheetsError(f"Could not reach Google Sheets: {e}") from e
-        if res.is_error:
-            raise SheetsError(f"Sheets API {method} {path}: {res.status_code} {res.text}")
-        return res.json() if res.content else {}
+            float(value)
+        except ValueError:
+            return "'" + value
+    return value
 
-    async def ensure_tabs(self) -> None:
-        meta = await self.call("GET", "", params={"fields": "sheets.properties.title"})
-        have = {s["properties"]["title"] for s in meta.get("sheets", [])}
-        missing = [t for t in TABS if t not in have]
-        if not missing:
-            return
-        await self.call(
-            "POST",
-            ":batchUpdate",
-            body={"requests": [{"addSheet": {"properties": {"title": t}}} for t in missing]},
-        )
-        for tab in missing:
-            await self.call(
-                "PUT", f"/values/{tab}!A1", params={"valueInputOption": "RAW"}, body={"values": [TABS[tab]]}
-            )
 
-    async def append(self, tab: str, rows: list[Row]) -> None:
-        if rows:
-            await self.call(
-                "POST",
-                f"/values/{tab}!A1:append",
-                params={"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"},
-                body={"values": rows},
-            )
+def _tab(name: str, mode: str, rows: list[Row]) -> dict[str, Any]:
+    return {"name": name, "mode": mode, "header": TABS[name], "rows": [[_cell(c) for c in r] for r in rows]}
 
-    async def replace(self, tab: str, rows: list[Row]) -> None:
-        """Overwrite a summary tab below its header row.
 
-        New rows are written first and only the leftover rows below them cleared, so the tab is
-        never empty in between: Google drops a chart's series when its columns go blank.
-        """
-        last_col = chr(ord("A") + len(TABS[tab]) - 1)
-        if rows:
-            await self.call(
-                "PUT", f"/values/{tab}!A2", params={"valueInputOption": "USER_ENTERED"}, body={"values": rows}
-            )
-        await self.call("POST", f"/values/{tab}!A{len(rows) + 2}:{last_col}{SUMMARY_MAX_ROW}:clear", body={})
+async def _post(client: httpx.AsyncClient, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """POST to the web app. Apps Script answers with a redirect to the JSON result, which httpx
+    follows as a GET; an error page or a non-JSON answer means the script isn't deployed right."""
+    try:
+        res = await client.post(url, json=payload, follow_redirects=True)
+    except httpx.HTTPError as e:
+        raise SheetsError(f"Could not reach the Google Sheet web app: {e}") from e
+    if res.is_error:
+        raise SheetsError(f"Google Sheet web app answered {res.status_code}. Check the web app URL.")
+    try:
+        body = res.json()
+    except ValueError as e:
+        raise SheetsError(
+            "The web app didn't answer with JSON. Check that it is deployed with access "
+            "'Anyone' and that the URL ends in /exec."
+        ) from e
+    if not isinstance(body, dict) or body.get("ok") is not True:
+        error = body.get("error") if isinstance(body, dict) else None
+        raise SheetsError(f"The Google Sheet script reported: {error or 'an unknown error'}")
+    return body
 
 
 # ---------- Rows (sync DB sections) ----------
@@ -331,11 +246,11 @@ def _mark_synced(
 async def sync_now(
     session_factory: sessionmaker[Session], *, client: httpx.AsyncClient | None = None
 ) -> SyncResult:
-    """Push unsynced orders and expenses to the configured Google Sheet.
+    """Push unsynced orders and expenses, and fresh summaries, to the Google Sheet web app.
 
     Returns a skipped result when sync is off and ``ok=False`` when it isn't configured yet.
-    Raises :class:`SheetsError` when the credentials, Google sign-in or a Sheets call fail; rows
-    are only marked synced after Google has accepted them.
+    Raises :class:`SheetsError` when the web app can't be reached or reports an error; rows are
+    only marked synced after the script has confirmed it wrote them.
     """
     with session_scope(session_factory) as session:
         enabled = is_enabled(session, "google_sheets")
@@ -344,42 +259,55 @@ async def sync_now(
         return SyncResult(
             ok=False, skipped=True, message="Google Sheet sync is switched off in the admin dashboard."
         )
-    spreadsheet_id = cfg.spreadsheet_id.strip()
-    credentials_path = cfg.credentials_path.strip()
-    if not spreadsheet_id or not credentials_path:
+    url, secret = cfg.web_app_url.strip(), cfg.secret.strip()
+    if not url or not secret:
         return SyncResult(
-            ok=False, message="Add the spreadsheet ID and key file path in Admin → Google Sheet sync."
+            ok=False, message="Add the web app URL and secret in Admin → Modules → Google Sheet sync."
         )
+    if not WEB_APP_URL_RE.match(url):
+        return SyncResult(
+            ok=False,
+            message="The web app URL should look like https://script.google.com/macros/s/.../exec",
+        )
+
+    global _running  # noqa: PLW0603 - one sync at a time in this process
+    if _running:
+        return SyncResult(ok=False, message="A sync is already running. Try again in a moment.")
+    _running = True
+    try:
+        return await _sync(session_factory, client, url, secret)
+    finally:
+        _running = False
+
+
+_running = False
+
+
+async def _sync(
+    session_factory: sessionmaker[Session], client: httpx.AsyncClient | None, url: str, secret: str
+) -> SyncResult:
+    now = clock.now()
+    with session_scope(session_factory) as session:
+        order_ids, order_rows, item_rows = _order_rows(session)
+        expense_ids, expense_rows = _expense_rows(session)
+        tabs = [
+            _tab("Orders", "append", order_rows),
+            _tab("OrderItems", "append", item_rows),
+            _tab("Expenses", "append", expense_rows),
+            _tab("Daily", "replace", _daily_rows(session, now)),
+            _tab("Items", "replace", _item_rows(session, now)),
+            _tab("Monthly", "replace", _monthly_rows(session, now)),
+        ]
 
     own_client = client is None
     http = client or httpx.AsyncClient(timeout=HTTP_TIMEOUT)
     try:
-        api = _SheetsApi(http, await _access_token(http, credentials_path), spreadsheet_id)
-        await api.ensure_tabs()
-
-        with session_scope(session_factory) as session:
-            order_ids, order_rows, item_rows = _order_rows(session)
-        await api.append("Orders", order_rows)
-        await api.append("OrderItems", item_rows)
-        _mark_synced(session_factory, Order, order_ids)
-
-        with session_scope(session_factory) as session:
-            expense_ids, expense_rows = _expense_rows(session)
-        await api.append("Expenses", expense_rows)
-        _mark_synced(session_factory, Expense, expense_ids)
-
-        now = clock.now()
-        with session_scope(session_factory) as session:
-            summaries = {
-                "Daily": _daily_rows(session, now),
-                "Items": _item_rows(session, now),
-                "Monthly": _monthly_rows(session, now),
-            }
-        for tab in SUMMARY_TABS:
-            await api.replace(tab, summaries[tab])
+        await _post(http, url, {"secret": secret, "tabs": tabs})
     finally:
         if own_client:
             await http.aclose()
+    _mark_synced(session_factory, Order, order_ids)
+    _mark_synced(session_factory, Expense, expense_ids)
 
     at = f"{clock.now():%Y-%m-%d %H:%M:%S}"
     with session_scope(session_factory) as session:

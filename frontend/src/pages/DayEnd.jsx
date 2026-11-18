@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, inr, today } from '../api.js';
+import { api, inr, pinApi, today } from '../api.js';
 
 export default function DayEnd({ notify, onChange }) {
   const [date, setDate] = useState(today());
@@ -13,9 +13,11 @@ export default function DayEnd({ notify, onChange }) {
 
   const cancel = async (o) => {
     if (!window.confirm(`Cancel bill ${o.bill_no} (${inr(o.total)})? It will be removed from sales.`)) return;
-    await api.post(`/api/orders/${o.id}/cancel`);
-    notify(`Bill ${o.bill_no} cancelled`);
-    load(); onChange();
+    try {
+      await pinApi.post(`/api/orders/${o.id}/cancel`, {}, `Enter the admin PIN to cancel bill ${o.bill_no}.`);
+      notify(`Bill ${o.bill_no} cancelled`);
+      load(); onChange();
+    } catch (e) { if (!e.cancelled) notify(e.message); }
   };
 
   if (!d) return <div className="page muted">Loading…</div>;

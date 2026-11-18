@@ -63,6 +63,43 @@ export const adminApi = {
   del: (u) => req('DELETE', u, undefined, true),
 };
 
+// Same calls for counter actions that need the PIN (cancel a bill, expenses, targets): when
+// nobody is signed in, or the token has expired, the PIN prompt opens and the call is retried.
+export const PIN_NEEDED_EVENT = 'wb:pin-needed';
+export function requirePin(reason) {
+  return new Promise((resolve, reject) => {
+    window.dispatchEvent(new CustomEvent(PIN_NEEDED_EVENT, { detail: { reason, resolve, reject } }));
+  });
+}
+async function withPin(method, u, b, reason) {
+  if (!adminSession.get()) await requirePin(reason);
+  try {
+    return await req(method, u, b, true);
+  } catch (e) {
+    if (e.status !== 401) throw e;
+    await requirePin(reason);
+    return req(method, u, b, true);
+  }
+}
+export const pinApi = {
+  post: (u, b, reason) => withPin('POST', u, b || {}, reason),
+  put: (u, b, reason) => withPin('PUT', u, b, reason),
+  del: (u, reason) => withPin('DELETE', u, undefined, reason),
+};
+
+// Fetches a protected plain-text resource (e.g. the Google Sheet setup script).
+export async function adminText(url) {
+  const res = await fetch(url, { headers: authHeaders(true) });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) signedOut();
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.text();
+}
+
 // Downloads a protected file (fetch with the token, then save the blob).
 export async function adminDownload(url, fallbackName) {
   const res = await fetch(url, { headers: authHeaders(true) });

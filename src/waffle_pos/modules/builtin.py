@@ -7,6 +7,7 @@ from typing import Annotated, Literal, get_args
 from pydantic import Field, field_validator
 
 from waffle_pos.modules.base import Module, ModuleSettings
+from waffle_pos.schemas import _image
 
 Color = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$", json_schema_extra={"format": "color"})]
 PaymentMethod = Literal["upi", "cash", "card"]
@@ -25,10 +26,16 @@ class ShopSettings(ModuleSettings):
         None,
         title="Logo",
         description="Square image; shown in the top bar.",
+        max_length=200_000,
         json_schema_extra={"format": "image"},
     )
     open_hour: int = Field(10, ge=0, le=23, title="Opens at (hour, 0-23)")
     close_hour: int = Field(23, ge=0, le=23, title="Closes at (hour, 0-23)")
+
+    @field_validator("logo")
+    @classmethod
+    def _logo(cls, v: str | None) -> str | None:
+        return _image(v)
 
 
 class ThemeSettings(ModuleSettings):
@@ -78,6 +85,7 @@ class TargetSettings(ModuleSettings):
         ],
         title="Expense categories",
         min_length=1,
+        max_length=30,
     )
 
     @field_validator("expense_categories")
@@ -104,22 +112,46 @@ class DiscountSettings(ModuleSettings):
 
 
 class GoogleSheetsSettings(ModuleSettings):
-    spreadsheet_id: str = Field(
-        "", title="Spreadsheet ID", description="The long code in the sheet's URL between /d/ and /edit."
-    )
-    credentials_path: str = Field(
+    web_app_url: str = Field(
         "",
-        title="Service-account key file",
-        description="Full path on the POS computer. In Docker: /secrets/<file>.json",
+        title="Web app URL",
+        description="From the sheet's Apps Script: Deploy -> Web app. Looks like "
+        "https://script.google.com/macros/s/.../exec",
+        max_length=300,
+    )
+    secret: str = Field(
+        "",
+        title="Secret",
+        description="Any long random text (16+ characters). Paste the same text into SECRET in the script.",
+        max_length=200,
     )
     interval_minutes: int = Field(5, ge=1, le=1440, title="Sync every (minutes)")
     last_sync: str = Field("", title="Last synced", json_schema_extra={"readOnly": True})
+
+    @field_validator("web_app_url")
+    @classmethod
+    def _check_url(cls, v: str) -> str:
+        v = v.strip()
+        if v and not v.startswith("https://script.google.com/macros/s/"):
+            raise ValueError(
+                "must be the Apps Script web app URL, https://script.google.com/macros/s/.../exec"
+            )
+        return v
+
+    @field_validator("secret")
+    @classmethod
+    def _check_secret(cls, v: str) -> str:
+        v = v.strip()
+        if v and len(v) < 16:
+            raise ValueError("use at least 16 characters")
+        return v
 
 
 class WhatsAppSettings(ModuleSettings):
     business_number: str = Field("", title="WhatsApp Business number", max_length=20)
     delivery_buildings: list[str] = Field(
         default_factory=list,
+        max_length=50,
         title="Buildings we deliver to",
         description="Tower / building names in the apartment complex.",
     )
@@ -179,7 +211,7 @@ GOOGLE_SHEETS = Module(
     default_enabled=False,
     icon="📊",
     order=20,
-    secret_fields=frozenset({"credentials_path"}),
+    secret_fields=frozenset({"secret"}),
     internal_fields=frozenset({"last_sync"}),
 )
 WHATSAPP = Module(

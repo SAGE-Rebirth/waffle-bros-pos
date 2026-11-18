@@ -1,11 +1,10 @@
-"""Google Sheets sync, with Google faked by httpx.MockTransport (no network)."""
+"""Google Sheet sync through the Apps Script web app, faked by httpx.MockTransport (no network)."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-from collections.abc import Callable, Coroutine, Iterator
+from collections.abc import Coroutine, Iterator
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -13,8 +12,6 @@ from typing import Any
 
 import httpx
 import pytest
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,72 +27,63 @@ from waffle_pos.modules.builtin import GoogleSheetsSettings
 from waffle_pos.schemas import OrderCreate, OrderLineIn, SyncResult
 from waffle_pos.services.orders import cancel_order, create_order
 
-TOKEN_URI = "https://oauth2.example.test/token"  # noqa: S105 - fake endpoint
-SHEET_ID = "sheet-123"
+WEB_APP = "https://script.google.com/macros/s/AKfy-test_123/exec"
+ECHO = "https://script.googleusercontent.com/macros/echo?user_content_key=abc"
+SECRET = "a-long-shared-secret-123"  # noqa: S105 - test value
 
 
 def run[T](coro: Coroutine[Any, Any, T]) -> T:
     return asyncio.run(coro)
 
 
-async def _sync(factory: sessionmaker[Session], fake: FakeGoogle) -> SyncResult:
-    async with fake.client() as client:
-        return await sheets.sync_now(factory, client=client)
-
-
 @dataclass
-class FakeGoogle:
-    """Records requests and answers like the token endpoint and Sheets API would."""
+class FakeWebApp:
+    """Behaves like the deployed Apps Script: POST answers 302 to an echo URL serving the JSON
+    result, and the tabs are kept in memory the way apps_script.gs writes them."""
 
-    existing_tabs: set[str] = field(default_factory=set)
-    auth_status: int = 200
-    sheets_status: int = 200
-    token_requests: int = 0
-    appended: dict[str, list[list[Any]]] = field(default_factory=dict)
-    written: dict[str, list[list[Any]]] = field(default_factory=dict)
-    added_tabs: list[str] = field(default_factory=list)
-    cleared: list[str] = field(default_factory=list)
-    assertions: list[str] = field(default_factory=list)
+    secret: str = SECRET
+    status: int = 200
+    raw_answer: str | None = None  # e.g. an HTML error page
+    posts: list[dict[str, Any]] = field(default_factory=list)
+    tabs: dict[str, list[list[Any]]] = field(default_factory=dict)  # header row + data rows
+    _result: dict[str, Any] = field(default_factory=dict)
 
-    def handler(self, request: httpx.Request) -> httpx.Response:  # noqa: PLR0911 - one branch per endpoint
+    def handler(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
-        if url.startswith(TOKEN_URI):
-            self.token_requests += 1
-            form = dict(httpx.QueryParams(request.content.decode()))
-            assert form["grant_type"] == sheets.JWT_BEARER_GRANT
-            self.assertions.append(form["assertion"])
-            if self.auth_status != 200:
-                return httpx.Response(self.auth_status, json={"error": "invalid_grant"})
-            return httpx.Response(200, json={"access_token": "tok-1", "expires_in": 3600})
+        if request.method == "POST" and url == WEB_APP:
+            body = json.loads(request.content)
+            self.posts.append(body)
+            self._result = self._apply(body)
+            return httpx.Response(302, headers={"Location": ECHO})
+        if request.method == "GET" and url == ECHO:
+            if self.status != 200:
+                return httpx.Response(self.status, text="Google error page")
+            if self.raw_answer is not None:
+                return httpx.Response(200, text=self.raw_answer)
+            return httpx.Response(200, json=self._result)
+        return httpx.Response(404, text=f"unexpected {request.method} {url}")
 
-        assert request.headers["Authorization"] == "Bearer tok-1"
-        if self.sheets_status != 200:
-            return httpx.Response(self.sheets_status, json={"error": {"message": "nope"}})
-        prefix = f"{sheets.SHEETS_API}/{SHEET_ID}"
-        assert request.url.path.startswith(httpx.URL(prefix).path)
-        path = request.url.path[len(httpx.URL(prefix).path) :]
-        body: Any = json.loads(request.content) if request.content else None
+    def _apply(self, body: dict[str, Any]) -> dict[str, Any]:
+        if body.get("secret") != self.secret:
+            return {"ok": False, "error": "Wrong secret: it must match the POS admin page"}
+        for tab in body["tabs"]:
+            sheet = self.tabs.setdefault(tab["name"], [tab["header"]])
+            if tab["mode"] == "append":
+                sheet.extend(tab["rows"])
+            else:
+                sheet[1:] = tab["rows"]
+        return {"ok": True, "tabs": len(body["tabs"])}
 
-        if request.method == "GET" and path == "":
-            tabs = self.existing_tabs | set(self.added_tabs)
-            return httpx.Response(200, json={"sheets": [{"properties": {"title": t}} for t in sorted(tabs)]})
-        if request.method == "POST" and path == ":batchUpdate":
-            self.added_tabs += [r["addSheet"]["properties"]["title"] for r in body["requests"]]
-            return httpx.Response(200, json={})
-        if request.method == "POST" and path.endswith(":append"):
-            tab = path.removeprefix("/values/").split("!")[0]
-            self.appended.setdefault(tab, []).extend(body["values"])
-            return httpx.Response(200, json={})
-        if request.method == "POST" and path.endswith(":clear"):
-            self.cleared.append(path)
-            return httpx.Response(200, json={})
-        if request.method == "PUT":
-            self.written[path.removeprefix("/values/")] = body["values"]
-            return httpx.Response(200, json={})
-        return httpx.Response(404, text=f"unexpected {request.method} {path}")
+    def rows(self, tab: str) -> list[list[Any]]:
+        return self.tabs.get(tab, [[]])[1:]
 
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
+
+
+async def _sync(factory: sessionmaker[Session], fake: FakeWebApp) -> SyncResult:
+    async with fake.client() as client:
+        return await sheets.sync_now(factory, client=client)
 
 
 @pytest.fixture
@@ -114,52 +102,15 @@ def sheets_factory(sheets_engine: Engine) -> sessionmaker[Session]:
     return make_session_factory(sheets_engine)
 
 
-@pytest.fixture(autouse=True)
-def sheets_clear_token_cache() -> Iterator[None]:
-    sheets.clear_token_cache()
-    yield
-    sheets.clear_token_cache()
-
-
-@pytest.fixture(scope="module")
-def sheets_private_key() -> rsa.RSAPrivateKey:
-    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
-
-
-@pytest.fixture
-def sheets_key_file(tmp_path: Path, sheets_private_key: rsa.RSAPrivateKey) -> Path:
-    key = sheets_private_key
-    pem = key.private_bytes(
-        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-    ).decode()
-    path = tmp_path / "google-key.json"
-    path.write_text(
-        json.dumps(
-            {
-                "type": "service_account",
-                "client_email": "pos@waffle.iam.gserviceaccount.com",
-                "private_key_id": "kid-1",
-                "private_key": pem,
-                "token_uri": TOKEN_URI,
-            }
-        )
-    )
-    return path
-
-
 def _last_sync(session: Session) -> str:
     return registry.settings_of(session, "google_sheets", GoogleSheetsSettings).last_sync
 
 
 @pytest.fixture
-def sheets_enabled(sheets_factory: sessionmaker[Session], sheets_key_file: Path) -> sessionmaker[Session]:
+def sheets_enabled(sheets_factory: sessionmaker[Session]) -> sessionmaker[Session]:
     with session_scope(sheets_factory) as session:
         registry.set_enabled(session, "google_sheets", True)
-        registry.save_settings(
-            session,
-            "google_sheets",
-            {"spreadsheet_id": SHEET_ID, "credentials_path": str(sheets_key_file)},
-        )
+        registry.save_settings(session, "google_sheets", {"web_app_url": WEB_APP, "secret": SECRET})
     return sheets_factory
 
 
@@ -185,70 +136,84 @@ def _add_sales(factory: sessionmaker[Session]) -> list[str]:
 
 
 def test_disabled_is_skipped(sheets_factory: sessionmaker[Session]) -> None:
-    fake = FakeGoogle()
+    fake = FakeWebApp()
     result = run(_sync(sheets_factory, fake))
     assert result.skipped and not result.ok
-    assert fake.token_requests == 0
+    assert fake.posts == []
 
 
 def test_enabled_without_config_asks_for_it(sheets_factory: sessionmaker[Session]) -> None:
     with session_scope(sheets_factory) as session:
         registry.set_enabled(session, "google_sheets", True)
-    result = run(_sync(sheets_factory, FakeGoogle()))
+    fake = FakeWebApp()
+    result = run(_sync(sheets_factory, fake))
     assert not result.ok and not result.skipped
-    assert "spreadsheet ID" in result.message
+    assert "web app URL and secret" in result.message
+    assert fake.posts == []
 
 
-def test_sync_appends_rows_and_marks_synced(sheets_enabled: sessionmaker[Session]) -> None:
+def test_settings_reject_other_urls_and_short_secrets(sheets_factory: sessionmaker[Session]) -> None:
+    with session_scope(sheets_factory) as session:
+        with pytest.raises(ValueError, match="Apps Script web app URL"):
+            registry.save_settings(session, "google_sheets", {"web_app_url": "http://169.254.169.254/x"})
+        with pytest.raises(ValueError, match="16 characters"):
+            registry.save_settings(session, "google_sheets", {"secret": "short"})
+
+
+def test_sync_posts_every_tab_and_marks_synced(sheets_enabled: sessionmaker[Session]) -> None:
     bills = _add_sales(sheets_enabled)
-    fake = FakeGoogle(existing_tabs={"Orders"})
+    fake = FakeWebApp()
     result = run(_sync(sheets_enabled, fake))
 
     assert result.ok, result.message
     assert result.message == "Synced 3 orders and 2 expenses."
     assert result.at
 
-    # Missing tabs created, with headers; the existing one left alone.
-    assert fake.added_tabs == ["OrderItems", "Expenses", "Daily", "Items", "Monthly"]
-    assert fake.written["OrderItems!A1"] == [sheets.TABS["OrderItems"]]
-    assert "Orders!A1" not in fake.written
+    # One request carrying the secret and all six tabs, each with its header.
+    assert len(fake.posts) == 1
+    post = fake.posts[0]
+    assert post["secret"] == SECRET
+    assert [(t["name"], t["mode"]) for t in post["tabs"]] == [
+        ("Orders", "append"),
+        ("OrderItems", "append"),
+        ("Expenses", "append"),
+        ("Daily", "replace"),
+        ("Items", "replace"),
+        ("Monthly", "replace"),
+    ]
+    for tab in post["tabs"]:
+        assert tab["header"] == sheets.TABS[tab["name"]]
+        assert all(len(r) == len(tab["header"]) for r in tab["rows"]), tab["name"]
 
-    orders = fake.appended["Orders"]
+    orders = fake.rows("Orders")
     assert [r[0] for r in orders] == bills
     first = orders[0]
     assert first[3] == "Nutella x2, Veg Grilled Waffle Sandwich x1"
     assert first[7] == 199 * 2 + 139
     assert orders[1][8] == "upi" and orders[1][12] == "Asha"
     assert orders[2][11] == "cancelled"
-    assert len(first) == len(sheets.TABS["Orders"])
 
-    items = fake.appended["OrderItems"]
+    items = fake.rows("OrderItems")
     assert len(items) == 4
     assert items[0][3:] == ["Nutella", "Waffle", 199, 2, 398]
 
-    assert fake.appended["Expenses"] == [
+    assert fake.rows("Expenses") == [
         ["2026-01-01", "rent", 25000, "Monthly", ""],
         ["2026-01-03", "ingredients", 9000, "One-off", "Weekly stock"],
     ]
 
     # Daily: today only, paid bills only (the cancelled family pack is left out).
     today = f"{clock.today():%Y-%m-%d}"
-    assert fake.cleared == [
-        "/values/Daily!A3:E2000:clear",
-        "/values/Items!A20:K2000:clear",
-        "/values/Monthly!A14:H2000:clear",
-    ]
-    assert fake.written["Daily!A2"] == [[today, 537 + 129, 2, 333, "Nutella"]]
+    assert fake.rows("Daily") == [[today, 537 + 129, 2, 333, "Nutella"]]
 
     # Items: whole menu, best earners first, last 30 days of paid bills.
-    item_rows = fake.written["Items!A2"]
+    item_rows = fake.rows("Items")
     assert len(item_rows) == 18
     assert item_rows[0][:3] == ["W05", "Nutella", "Waffle"]
     assert item_rows[0][6:9] == [2, 1, 398]
-    assert all(len(r) == len(sheets.TABS["Items"]) for r in item_rows)
 
     # Monthly: 12 months ending with this one; expenses include the recurring rent.
-    monthly = fake.written["Monthly!A2"]
+    monthly = fake.rows("Monthly")
     assert len(monthly) == 12
     assert monthly[-1][0] == clock.month_key(clock.today())
     assert monthly[-1][2:5] == [537 + 129, 2, 333]
@@ -259,61 +224,27 @@ def test_sync_appends_rows_and_marks_synced(sheets_enabled: sessionmaker[Session
         assert all(e.synced for e in session.scalars(select(Expense)))
         assert _last_sync(session) == result.at
 
-    # Second run: nothing new to append, token reused from the cache.
-    fake.appended.clear()
+    # Second run: nothing new to append, summaries rewritten (not duplicated).
     again = run(_sync(sheets_enabled, fake))
     assert again.message == "Synced 0 orders and 0 expenses."
-    assert fake.appended == {}
-    assert fake.token_requests == 1
-
-
-def _b64json(part: str) -> Any:
-    return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
-
-
-def test_jwt_is_signed_for_the_service_account(
-    sheets_enabled: sessionmaker[Session], sheets_private_key: rsa.RSAPrivateKey
-) -> None:
-    fake = FakeGoogle(existing_tabs=set(sheets.TABS))
-    run(_sync(sheets_enabled, fake))
-    header_b64, claims_b64, signature_b64 = fake.assertions[0].split(".")
-    header, claims = _b64json(header_b64), _b64json(claims_b64)
-    assert header["alg"] == "RS256" and header["kid"] == "kid-1"
-    assert claims["iss"] == "pos@waffle.iam.gserviceaccount.com"
-    assert claims["aud"] == TOKEN_URI
-    assert claims["scope"] == sheets.SCOPE
-    assert claims["exp"] - claims["iat"] == 3600
-    # Raises InvalidSignature if the JWT wasn't signed with the service account's key.
-    sheets_private_key.public_key().verify(
-        base64.urlsafe_b64decode(signature_b64 + "=" * (-len(signature_b64) % 4)),
-        f"{header_b64}.{claims_b64}".encode(),
-        padding.PKCS1v15(),
-        hashes.SHA256(),
-    )
-
-
-def test_expired_token_is_refreshed(sheets_enabled: sessionmaker[Session]) -> None:
-    fake = FakeGoogle(existing_tabs=set(sheets.TABS))
-    run(_sync(sheets_enabled, fake))
-    for token in sheets._token_cache.values():
-        token.expires_at = 0
-    run(_sync(sheets_enabled, fake))
-    assert fake.token_requests == 2
+    assert len(fake.rows("Orders")) == 3
+    assert len(fake.rows("Items")) == 18
+    assert len(fake.rows("Monthly")) == 12
 
 
 @pytest.mark.parametrize(
-    ("setup", "match"),
+    ("fake", "match"),
     [
-        (lambda f: setattr(f, "auth_status", 400), "Google auth failed: 400"),
-        (lambda f: setattr(f, "sheets_status", 403), "Sheets API GET : 403"),
+        (FakeWebApp(secret="something-else-entirely"), "Wrong secret"),  # noqa: S106
+        (FakeWebApp(status=500), "answered 500"),
+        (FakeWebApp(raw_answer="<html>Sign in</html>"), "didn't answer with JSON"),
+        (FakeWebApp(raw_answer='{"ok": false}'), "unknown error"),
     ],
 )
-def test_google_errors_raise_and_leave_rows_unsynced(
-    sheets_enabled: sessionmaker[Session], setup: Callable[[FakeGoogle], None], match: str
+def test_web_app_errors_raise_and_leave_rows_unsynced(
+    sheets_enabled: sessionmaker[Session], fake: FakeWebApp, match: str
 ) -> None:
     _add_sales(sheets_enabled)
-    fake = FakeGoogle()
-    setup(fake)
     with pytest.raises(sheets.SheetsError, match=match):
         run(_sync(sheets_enabled, fake))
     with session_scope(sheets_enabled) as session:
@@ -321,11 +252,24 @@ def test_google_errors_raise_and_leave_rows_unsynced(
         assert _last_sync(session) == ""
 
 
-def test_missing_credentials_file(sheets_enabled: sessionmaker[Session], tmp_path: Path) -> None:
-    with session_scope(sheets_enabled) as session:
-        registry.save_settings(session, "google_sheets", {"credentials_path": str(tmp_path / "nope.json")})
-    with pytest.raises(sheets.SheetsError, match="Credentials file not found"):
-        run(_sync(sheets_enabled, FakeGoogle()))
+def test_unreachable_web_app(sheets_enabled: sessionmaker[Session]) -> None:
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no internet", request=request)
+
+    async def go() -> SyncResult:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(boom)) as client:
+            return await sheets.sync_now(sheets_enabled, client=client)
+
+    with pytest.raises(sheets.SheetsError, match="Could not reach"):
+        run(go())
+
+
+def test_apps_script_source_is_shipped() -> None:
+    src = sheets.apps_script_source()
+    assert "function doPost(e)" in src
+    assert "PASTE_THE_SECRET_FROM_THE_POS" in src
+    for tab in sheets.TABS:
+        assert f"'{tab}'" in src  # every tab the POS sends is on the script's allow-list
 
 
 class _StopLoop(BaseException):

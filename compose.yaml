@@ -6,13 +6,19 @@ services:
     container_name: waffle-bros-pos
     restart: unless-stopped
     ports:
-      - "4000:4000"          # reachable from tablets on the shop Wi-Fi too
+      - "4000:4000"          # reachable from tablets on the shop Wi-Fi too. Never port-forward this
+                             # on the router. To keep it on this PC only: "127.0.0.1:4000:4000"
     environment:
       WB_TIMEZONE: Asia/Kolkata
-      WB_SYNC_INTERVAL_SECONDS: "300"
     volumes:
       - pos-data:/data       # sales, menu, expenses (SQLite). Survives rebuilds and updates.
-      - ./secrets:/secrets:ro  # put the Google service-account key here, then set its path to /secrets/<file>.json in Admin → Modules → Google Sheet sync
+    # Hardening: read-only image, no extra Linux capabilities, no privilege escalation.
+    read_only: true
+    tmpfs:
+      - /tmp                 # backups are written here briefly before download
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   pos-data:

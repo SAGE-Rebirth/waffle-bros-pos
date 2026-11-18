@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Path, Query
 
 from waffle_pos import clock
-from waffle_pos.api.deps import DB, INVALID, bad_request, errors
+from waffle_pos.api.deps import ADMIN_401, ADMIN_403, DB, INVALID, AdminOnly, bad_request, errors
 from waffle_pos.schemas import OrderCreate, OrderOut
 from waffle_pos.services import orders
 
@@ -62,11 +62,13 @@ def get_order(order_id: OrderId, db: DB) -> OrderOut:
 
 @router.post(
     "/{order_id}/cancel",
-    summary="Cancel a bill",
-    responses=errors({404: "No order with that id.", 422: INVALID}),
+    summary="Cancel a bill (Admin)",
+    dependencies=[AdminOnly],
+    responses=errors({401: ADMIN_401, 403: ADMIN_403, 404: "No order with that id.", 422: INVALID}),
 )
 def cancel_order(order_id: OrderId, db: DB) -> OrderOut:
-    """Mark a bill `cancelled` and return it. The bill is kept (bills are history) but no longer
+    """Needs the admin PIN, so a paid bill can't be quietly cancelled at the counter.
+    Mark a bill `cancelled` and return it. The bill is kept (bills are history) but no longer
     counts towards revenue, targets or item stats; the day-end sheet lists it under `cancelled`.
     The next Google Sheet sync appends the bill again with status `cancelled` (the earlier row is
     left as it was). Cancelling twice is harmless.

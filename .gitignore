@@ -27,5 +27,5 @@ google-key*.json
 .DS_Store
 Thumbs.db
 
-secrets/*
-!secrets/README.md
+backups/
+google-key*.json

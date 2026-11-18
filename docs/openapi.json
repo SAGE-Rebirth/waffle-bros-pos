@@ -96,6 +96,7 @@
           "amount": {
             "description": "Rupees.",
             "exclusiveMinimum": 0.0,
+            "maximum": 10000000.0,
             "title": "Amount",
             "type": "number"
           },
@@ -122,6 +123,7 @@
           "note": {
             "anyOf": [
               {
+                "maxLength": 300,
                 "type": "string"
               },
               {
@@ -239,6 +241,7 @@
           "cost": {
             "default": 0,
             "description": "Cost to make, in rupees (for margins; 0 = unknown).",
+            "maximum": 10000000.0,
             "minimum": 0.0,
             "title": "Cost",
             "type": "number"
@@ -246,13 +249,14 @@
           "image": {
             "anyOf": [
               {
+                "maxLength": 200000,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Optional image URL.",
+            "description": "Optional picture: a `data:image/...;base64,` URL (what the admin page uploads) or a path on this server. External URLs are refused.",
             "title": "Image"
           },
           "name": {
@@ -263,6 +267,7 @@
           },
           "price": {
             "description": "Selling price in rupees, before GST.",
+            "maximum": 10000000.0,
             "minimum": 0.0,
             "title": "Price",
             "type": "number"
@@ -600,21 +605,24 @@
           "discount": {
             "default": 0,
             "description": "Rupees off the subtotal, before GST.",
+            "maximum": 10000000.0,
             "minimum": 0.0,
             "title": "Discount",
             "type": "number"
           },
           "items": {
-            "description": "At least one line; prices come from the menu.",
+            "description": "At least one line (at most 100); prices come from the menu.",
             "items": {
               "$ref": "#/components/schemas/OrderLineIn"
             },
+            "maxItems": 100,
             "title": "Items",
             "type": "array"
           },
           "note": {
             "anyOf": [
               {
+                "maxLength": 300,
                 "type": "string"
               },
               {
@@ -864,6 +872,7 @@
             "items": {
               "type": "integer"
             },
+            "maxItems": 1000,
             "minItems": 1,
             "title": "Ids",
             "type": "array"
@@ -914,6 +923,7 @@
           "amount": {
             "description": "Revenue target for the month, in rupees.",
             "exclusiveMinimum": 0.0,
+            "maximum": 100000000.0,
             "title": "Amount",
             "type": "number"
           },
@@ -979,9 +989,79 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/google-sheet/script": {
+      "get": {
+        "description": "The Google Apps Script that receives the POS sync. Paste it into the spreadsheet\n(Extensions → Apps Script), set its SECRET to the module's secret, and deploy it as a web app;\nthe setup steps are in the comment at the top.",
+        "operationId": "google_sheet_script_api_admin_google_sheet_script_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The Apps Script to paste into the Google Sheet",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/admin/login": {
       "post": {
-        "description": "Returns a bearer token for the admin endpoints. The default PIN is 1234 until changed.",
+        "description": "Returns a bearer token for the admin endpoints. The default PIN is 1234 until changed, and\nwith it the token can only change the PIN. After 5 wrong PINs from one device, sign-in from it\nis locked for 30 s, doubling with every further wrong PIN (429 with `Retry-After`); 30 wrong\nPINs from anywhere within 10 minutes lock sign-in for everyone for a while.",
         "operationId": "login_api_admin_login_post",
         "requestBody": {
           "content": {
@@ -1243,6 +1323,16 @@
             },
             "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1322,6 +1412,16 @@
               }
             },
             "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
           },
           "422": {
             "content": {
@@ -1403,6 +1503,16 @@
             },
             "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1483,6 +1593,16 @@
               }
             },
             "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
           },
           "404": {
             "content": {
@@ -1808,6 +1928,24 @@
       "post": {
         "description": "Log an expense in rupees. `category` is free text, stored lower-case (the app suggests rent,\nsalary, ingredients, electricity, packaging, marketing, maintenance, other). `date` defaults to today.\nSet `recurring: true` for a monthly cost such as rent or salaries: it then counts in every\nmonth from `date` on. Returns the new expense's `id`; queued for the next Google Sheet sync.",
         "operationId": "add_expense_api_expenses_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1829,6 +1967,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1840,7 +1998,7 @@
             "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
           }
         },
-        "summary": "Add an expense",
+        "summary": "Add an expense (Admin)",
         "tags": [
           "finance"
         ]
@@ -1861,6 +2019,22 @@
               "title": "Expense Id",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -1874,6 +2048,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1885,7 +2079,7 @@
             "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
           }
         },
-        "summary": "Delete an expense",
+        "summary": "Delete an expense (Admin)",
         "tags": [
           "finance"
         ]
@@ -2082,6 +2276,16 @@
             },
             "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2207,6 +2411,16 @@
               }
             },
             "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
           },
           "422": {
             "content": {
@@ -2510,7 +2724,7 @@
     },
     "/api/orders/{order_id}/cancel": {
       "post": {
-        "description": "Mark a bill `cancelled` and return it. The bill is kept (bills are history) but no longer\ncounts towards revenue, targets or item stats; the day-end sheet lists it under `cancelled`.\nThe next Google Sheet sync appends the bill again with status `cancelled` (the earlier row is\nleft as it was). Cancelling twice is harmless.",
+        "description": "Needs the admin PIN, so a paid bill can't be quietly cancelled at the counter.\nMark a bill `cancelled` and return it. The bill is kept (bills are history) but no longer\ncounts towards revenue, targets or item stats; the day-end sheet lists it under `cancelled`.\nThe next Google Sheet sync appends the bill again with status `cancelled` (the earlier row is\nleft as it was). Cancelling twice is harmless.",
         "operationId": "cancel_order_api_orders__order_id__cancel_post",
         "parameters": [
           {
@@ -2522,6 +2736,22 @@
               "description": "The order's numeric `id` (not its `bill_no`).",
               "title": "Order Id",
               "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -2535,6 +2765,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
           },
           "404": {
             "content": {
@@ -2557,7 +2807,7 @@
             "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
           }
         },
-        "summary": "Cancel a bill",
+        "summary": "Cancel a bill (Admin)",
         "tags": [
           "orders"
         ]
@@ -2567,6 +2817,24 @@
       "post": {
         "description": "Push bills and expenses not yet synced (up to 500 bills per run) to the Google Sheet and\nrewrite its Daily, Items and Monthly summary tabs. The same sync runs in the background on the\ninterval set in Admin → Modules → Google Sheet sync (5 minutes by default).\n\nAlways answers 200: check `ok`. `skipped: true` means sync is switched off in the admin dashboard;\n`ok: false` without `skipped` means it is not configured or failed (`message` says why);\n`at` is the shop-local time of a successful sync.",
         "operationId": "sync_api_sync_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2577,9 +2845,39 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "summary": "Sync to the Google Sheet now",
+        "summary": "Sync to the Google Sheet now (Admin)",
         "tags": [
           "system"
         ]
@@ -2599,6 +2897,22 @@
               "description": "The month, `YYYY-MM`, e.g. `2026-11`.",
               "title": "Month",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -2633,6 +2947,26 @@
             },
             "description": "The month is not `YYYY-MM` (\"Enter a valid month (YYYY-MM)\")."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The default PIN 1234 is still set: change it with `POST /api/admin/pin` first."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2644,7 +2978,7 @@
             "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
           }
         },
-        "summary": "Set a month's revenue target",
+        "summary": "Set a month's revenue target (Admin)",
         "tags": [
           "finance"
         ]

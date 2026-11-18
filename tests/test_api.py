@@ -19,8 +19,11 @@ def api_client(tmp_path: Path) -> Iterator[TestClient]:
 
 
 def _admin(client: TestClient) -> dict[str, str]:
+    """Admin headers: sign in with the default PIN and change it (the default only allows that)."""
     token = client.post("/api/admin/login", json={"pin": "1234"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+    r = client.post("/api/admin/pin", headers={"Authorization": f"Bearer {token}"}, json={"new_pin": "2468"})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
 def _item_id(client: TestClient, code: str) -> int:
@@ -94,7 +97,8 @@ def test_cancel_removes_order_from_sales(api_client: TestClient) -> None:
     w05 = _item_id(api_client, "W05")
     order = api_client.post("/api/orders", json={"items": [{"item_id": w05}]}).json()
     assert api_client.get("/api/dashboard").json()["target"]["todayRevenue"] == 199
-    cancelled = api_client.post(f"/api/orders/{order['id']}/cancel").json()
+    assert api_client.post(f"/api/orders/{order['id']}/cancel").status_code == 401
+    cancelled = api_client.post(f"/api/orders/{order['id']}/cancel", headers=_admin(api_client)).json()
     assert cancelled["status"] == "cancelled"
     assert api_client.get("/api/dashboard").json()["target"]["todayRevenue"] == 0
     listed = api_client.get(f"/api/orders?date={clock.today():%Y-%m-%d}").json()
@@ -103,16 +107,18 @@ def test_cancel_removes_order_from_sales(api_client: TestClient) -> None:
 
 
 def test_targets_and_expenses_feed_the_dashboard(api_client: TestClient) -> None:
+    h = _admin(api_client)
     month = clock.month_key(clock.today())
-    assert api_client.put(f"/api/targets/{month}", json={"amount": 150000, "makeDefault": True}).json()["ok"]
-    assert api_client.put("/api/targets/2026-13", json={"amount": 1}).status_code == 400
+    target_body = {"amount": 150000, "makeDefault": True}
+    assert api_client.put(f"/api/targets/{month}", headers=h, json=target_body).json()["ok"]
+    assert api_client.put("/api/targets/2026-13", headers=h, json={"amount": 1}).status_code == 400
     targets = api_client.get("/api/config").json()["modules"]["targets"]["settings"]
     assert targets["default_target"] == 150000
 
     rent = api_client.post(
-        "/api/expenses", json={"category": "Rent", "amount": 25000, "recurring": True}
+        "/api/expenses", headers=h, json={"category": "Rent", "amount": 25000, "recurring": True}
     ).json()
-    api_client.post("/api/expenses", json={"category": "ingredients", "amount": 5000})
+    api_client.post("/api/expenses", headers=h, json={"category": "ingredients", "amount": 5000})
     expenses = api_client.get(f"/api/expenses?month={month}").json()
     assert expenses["total"] == 30000
     assert expenses["recurringTotal"] == 25000
@@ -123,7 +129,7 @@ def test_targets_and_expenses_feed_the_dashboard(api_client: TestClient) -> None
     assert target["expenses"]["total"] == 30000
     assert target["netProfit"] == -30000
 
-    api_client.delete(f"/api/expenses/{rent['id']}")
+    api_client.delete(f"/api/expenses/{rent['id']}", headers=h)
     assert api_client.get("/api/expenses").json()["total"] == 5000
 
 
@@ -182,7 +188,8 @@ def test_old_settings_endpoint_is_gone(api_client: TestClient) -> None:
 
 
 def test_sync_is_skipped_until_enabled(api_client: TestClient) -> None:
-    r = api_client.post("/api/sync").json()
+    assert api_client.post("/api/sync").status_code == 401
+    r = api_client.post("/api/sync", headers=_admin(api_client)).json()
     assert r["ok"] is False
     assert r["skipped"] is True
 

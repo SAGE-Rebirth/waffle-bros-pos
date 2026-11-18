@@ -4,6 +4,7 @@ import Billing from './pages/Billing.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import DayEnd from './pages/DayEnd.jsx';
 import Admin from './pages/Admin.jsx';
+import PinPrompt from './components/PinPrompt.jsx';
 import { useConfig } from './config.jsx';
 
 export const Logo = () => (
@@ -77,6 +78,7 @@ export default function App() {
         {page === 'admin' && <Admin notify={notify} onChange={refresh} />}
       </main>
       {toast && <div className="toast">{toast}</div>}
+      <PinPrompt />
     </div>
   );
 }

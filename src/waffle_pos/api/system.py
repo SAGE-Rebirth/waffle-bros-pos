@@ -14,7 +14,7 @@ from sqlalchemy import text
 from starlette.background import BackgroundTask
 
 from waffle_pos import __version__, clock
-from waffle_pos.api.deps import ADMIN_401, DB, AdminOnly, SessionFactory, bad_request, errors
+from waffle_pos.api.deps import ADMIN_401, ADMIN_403, DB, AdminOnly, SessionFactory, bad_request, errors
 from waffle_pos.integrations import sheets
 from waffle_pos.schemas import SyncResult
 
@@ -28,7 +28,12 @@ def health(db: DB) -> dict[str, str]:
     return {"status": "ok", "version": __version__}
 
 
-@router.post("/sync", summary="Sync to the Google Sheet now")
+@router.post(
+    "/sync",
+    summary="Sync to the Google Sheet now (Admin)",
+    dependencies=[AdminOnly],
+    responses=errors({401: ADMIN_401, 403: ADMIN_403}),
+)
 async def sync(factory: SessionFactory) -> SyncResult:
     """Push bills and expenses not yet synced (up to 500 bills per run) to the Google Sheet and
     rewrite its Daily, Items and Monthly summary tabs. The same sync runs in the background on the
@@ -51,7 +56,7 @@ async def sync(factory: SessionFactory) -> SyncResult:
     dependencies=[AdminOnly],
     responses={
         200: {"content": {"application/octet-stream": {}}, "description": "The SQLite file."},
-        **errors({401: ADMIN_401}),
+        **errors({401: ADMIN_401, 403: ADMIN_403}),
     },
 )
 def backup(request: Request) -> FileResponse:
