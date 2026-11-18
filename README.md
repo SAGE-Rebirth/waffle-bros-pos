@@ -10,7 +10,7 @@ What makes it different from a regular POS: you set a **monthly revenue target**
 ![Dashboard](docs/2-dashboard-target.png)
 ![Items and expenses](docs/3-dashboard-items-expenses.png)
 
-_Screenshots use the sample data from `npm run demo`._
+_Screenshots use the sample data from `uv run python -m waffle_pos.demo`._
 
 | Screen | What it does |
 | --- | --- |
@@ -21,6 +21,9 @@ _Screenshots use the sample data from `npm run demo`._
 
 ## How the target maths works
 
+The maths lives in `src/waffle_pos/services/targets.py` as pure functions with unit tests.
+
+
 - **Today's goal** = (monthly target − sales before today) ÷ days left including today. It's fixed for the day, so the bar fills as you bill.
 - **Needed per day from tomorrow** = what's still left after today's sales ÷ remaining days.
 - **Projected month end** = sales so far + your average daily sales × days left. Averages count from your first sale of the month, so opening mid-month doesn't drag it down.
@@ -29,54 +32,74 @@ _Screenshots use the sample data from `npm run demo`._
 
 ## Running it
 
-Requires **Node.js 22.13 or newer** (https://nodejs.org, the LTS installer is fine). No database server is needed; data is one SQLite file in `data/`.
+You need **[uv](https://docs.astral.sh/uv/)** (it installs the right Python by itself) and, to build the screens once, **Node.js 22**.
 
-**Windows:** double-click `start-pos.bat`. The first run installs and builds (about a minute), then the POS opens at http://localhost:4000.
+**Windows:** double-click `start-pos.bat`. The first run sets everything up, then the POS opens at http://localhost:4000.
 
 **macOS / Linux:** `./start-pos.sh`
 
 Or by hand:
 
 ```bash
-npm run setup   # first time: install + build
-npm start       # http://localhost:4000 (the console also prints the Wi-Fi address for tablets)
+uv sync                                  # creates .venv with Python 3.12 and all dependencies
+(cd frontend && npm ci && npm run build) # build the screens once
+uv run waffle-pos                        # http://localhost:4000 (also prints the Wi-Fi address for tablets)
 ```
+
+API docs are at http://localhost:4000/docs.
+
+Settings for the server process come from environment variables or a `.env` file: `WB_DATA_DIR`, `WB_PORT`, `WB_TIMEZONE` (default `Asia/Kolkata`), `WB_SYNC_INTERVAL_SECONDS`.
 
 ### Try it with sample data
 
 ```bash
-npm run demo        # creates ~6 weeks of made-up sales in data-demo/ (your real data/ is untouched)
-npm run start:demo  # opens the POS on the demo data
+uv run python -m waffle_pos.demo                 # ~6 weeks of made-up sales in data-demo/ (your real data/ is untouched)
+WB_DATA_DIR=data-demo uv run waffle-pos          # Windows: set WB_DATA_DIR=data-demo && uv run waffle-pos
 ```
 
-### Developing
+## Development
 
 ```bash
-npm run dev   # API on :4000 with auto-reload + Vite on :5173 with hot reload
+uv sync                       # dev tools included
+uv run pre-commit install     # ruff, ruff-format, mypy and pytest before every commit
+uv run ruff check && uv run ruff format --check
+uv run mypy                   # strict
+uv run pytest                 # with coverage
+uv run uvicorn waffle_pos.app:create_app --factory --reload --port 4000   # API with auto-reload
+cd frontend && npm run dev    # screens with hot reload on :5173, proxied to the API
 ```
+
+Database changes: edit `src/waffle_pos/db/models.py`, then `uv run alembic revision --autogenerate -m "what changed"`. The app applies pending migrations on start-up.
+
+CI (GitHub Actions) runs the same checks plus the front-end build on every pull request.
 
 ## Google Sheet sync
 
-Every 5 minutes, when the computer is online, new bills, items sold and expenses are appended to a Google Sheet and a **Daily** summary tab is refreshed. Billing never waits for the internet; unsynced rows catch up later. Setup steps are in **Settings → Google Sheet** (service account key + share the sheet with it). You can also run `npm run sync` once by hand.
+Every 5 minutes, when the computer is online, new bills, items sold and expenses are appended to a Google Sheet and a **Daily** summary tab is refreshed. Billing never waits for the internet; unsynced rows catch up later. Setup steps are in **Settings → Google Sheet** (a service account key plus sharing the sheet with it). **Sync now** on that screen runs it immediately.
 
 Tabs created: `Orders`, `OrderItems`, `Expenses`, `Daily`.
 
 ## Backups
 
-All data lives in `data/waffle-bros.db`. Download a copy from **Settings → Backup** every week, or copy that file while the POS is closed.
+All data lives in `data/waffle-bros.db` (SQLite). **Settings → Backup** downloads a consistent copy, even while the shop is billing.
 
 ## Project layout
 
 ```
-server/
-  index.js      Express API + serves the built front end
-  db.js         SQLite schema, settings, starter menu
-  analytics.js  target maths, charts, item stats, insights, day-end report
-  sheets.js     Google Sheets sync (no extra packages)
-  seed-demo.js  demo data generator
-client/src/
-  pages/        Billing, Dashboard, DayEnd, Settings
-  components/   Receipt (print layout)
+src/waffle_pos/
+  app.py            FastAPI app factory (routes, error format, serves frontend/dist)
+  __main__.py       `uv run waffle-pos`
+  config.py         process settings (WB_* env vars)
+  clock.py          shop-local time helpers
+  schemas.py        Pydantic request/response models
+  api/              thin routers: menu, orders, dashboard, finance, system
+  services/         business logic: orders, menu, settings, targets (pure maths), analytics, insights
+  db/               SQLAlchemy models, session, migrations runner, starter menu
+  migrations/       Alembic
+  integrations/     Google Sheets sync
+  demo.py           demo data generator
+tests/              pytest: API, target maths, analytics, Sheets sync (mocked)
+frontend/           React + Vite screens
 ```
 
 ## Phase 2: WhatsApp ordering (planned)
