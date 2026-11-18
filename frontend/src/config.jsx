@@ -27,8 +27,8 @@ export const DEFAULT_MODULES = {
     },
   },
   gst: { enabled: false, settings: { rate: 5, gstin: '' } },
-  discounts: { enabled: true, settings: { max_discount_pct: 100 } },
-  google_sheets: { enabled: false, settings: { interval_minutes: 5, spreadsheet_id: '', last_sync: '' } },
+  discounts: { enabled: true, settings: { max_discount_pct: 20 } },
+  google_sheets: { enabled: false, settings: { interval_minutes: 5, web_app_url: '', last_sync: '' } },
   whatsapp: { enabled: false, settings: {} },
 };
 

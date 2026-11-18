@@ -7,7 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.1",
     "fastapi>=0.163.2",
-    "google-auth>=2.62.2",
     "httpx>=0.28.1",
     "pydantic-settings>=2.16.3",
     "sqlalchemy>=2.0",
@@ -48,9 +47,6 @@ plugins = ["pydantic.mypy"]
 files = ["src", "tests"]
 exclude = ["src/waffle_pos/migrations/versions/"]
 
-[[tool.mypy.overrides]]
-module = ["google.*"]
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Path, Query
 
 from waffle_pos import clock
-from waffle_pos.api.deps import DB, INVALID, bad_request, errors
+from waffle_pos.api.deps import ADMIN_401, ADMIN_403, DB, INVALID, AdminOnly, bad_request, errors
 from waffle_pos.db.models import Expense, Target
 from waffle_pos.modules.registry import save_settings
 from waffle_pos.schemas import ExpenseIn, IdOut, MonthExpensesOut, OkOut, TargetIn
@@ -19,8 +19,9 @@ BAD_MONTH = 'The month is not `YYYY-MM` ("Enter a valid month (YYYY-MM)").'
 
 @router.put(
     "/targets/{month}",
-    summary="Set a month's revenue target",
-    responses=errors({400: BAD_MONTH, 422: INVALID}),
+    summary="Set a month's revenue target (Admin)",
+    dependencies=[AdminOnly],
+    responses=errors({400: BAD_MONTH, 401: ADMIN_401, 403: ADMIN_403, 422: INVALID}),
 )
 def set_target(
     month: Annotated[str, Path(description="The month, `YYYY-MM`, e.g. `2026-11`.")],
@@ -66,7 +67,12 @@ def list_expenses(
     return analytics.month_expenses(db, month or clock.month_key(clock.today()))
 
 
-@router.post("/expenses", summary="Add an expense", responses=errors({422: INVALID}))
+@router.post(
+    "/expenses",
+    summary="Add an expense (Admin)",
+    dependencies=[AdminOnly],
+    responses=errors({401: ADMIN_401, 403: ADMIN_403, 422: INVALID}),
+)
 def add_expense(body: ExpenseIn, db: DB) -> IdOut:
     """Log an expense in rupees. `category` is free text, stored lower-case (the app suggests rent,
     salary, ingredients, electricity, packaging, marketing, maintenance, other). `date` defaults to today.
@@ -85,7 +91,12 @@ def add_expense(body: ExpenseIn, db: DB) -> IdOut:
     return IdOut(id=exp.id)
 
 
-@router.delete("/expenses/{expense_id}", summary="Delete an expense", responses=errors({422: INVALID}))
+@router.delete(
+    "/expenses/{expense_id}",
+    summary="Delete an expense (Admin)",
+    dependencies=[AdminOnly],
+    responses=errors({401: ADMIN_401, 403: ADMIN_403, 422: INVALID}),
+)
 def delete_expense(expense_id: Annotated[int, Path(description="The expense's `id`.")], db: DB) -> OkOut:
     """Delete an expense for good (a recurring one stops counting in every month). An unknown id is
     not an error. Rows already pushed to the Google Sheet stay there.

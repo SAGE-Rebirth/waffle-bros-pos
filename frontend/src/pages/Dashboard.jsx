@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ComposedChart, Line, Area, ReferenceLine,
 } from 'recharts';
-import { api, inr, inrShort, today, thisMonth, SERIES } from '../api.js';
+import { api, inr, inrShort, pinApi, today, thisMonth, SERIES } from '../api.js';
 import { useConfig } from '../config.jsx';
 
 const HONEY = SERIES[0];
@@ -55,8 +55,10 @@ function TargetCard({ t, onSaved, notify }) {
   const [edit, setEdit] = useState(false);
   const [val, setVal] = useState(t.target);
   const save = async () => {
-    try { await api.put(`/api/targets/${t.month}`, { amount: Number(val), makeDefault: true }); setEdit(false); onSaved(); notify('Target updated'); }
-    catch (e) { notify(e.message); }
+    try {
+      await pinApi.put(`/api/targets/${t.month}`, { amount: Number(val), makeDefault: true }, 'Enter the admin PIN to change the target.');
+      setEdit(false); onSaved(); notify('Target updated');
+    } catch (e) { if (!e.cancelled) notify(e.message); }
   };
   const monthName = new Date(`${t.month}-01T00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   const todayDone = t.todayRevenue >= t.todayTarget;
@@ -248,12 +250,15 @@ function Expenses({ month, onChange, notify }) {
   const category = cats.includes(f.category) ? f.category : cats.includes('ingredients') ? 'ingredients' : cats[0];
   const add = async () => {
     try {
-      await api.post('/api/expenses', { ...f, category, amount: Number(f.amount) });
+      await pinApi.post('/api/expenses', { ...f, category, amount: Number(f.amount) }, 'Enter the admin PIN to add an expense.');
       setF({ ...f, amount: '', note: '', recurring: false });
       load(); onChange(); notify('Expense added');
-    } catch (e) { notify(e.message); }
+    } catch (e) { if (!e.cancelled) notify(e.message); }
   };
-  const del = async (id) => { await api.del(`/api/expenses/${id}`); load(); onChange(); };
+  const del = async (id) => {
+    try { await pinApi.del(`/api/expenses/${id}`, 'Enter the admin PIN to delete this expense.'); load(); onChange(); }
+    catch (e) { if (!e.cancelled) notify(e.message); }
+  };
   const list = data ? [...data.recurring.map((e) => ({ ...e, rec: true })), ...data.oneOff] : [];
   return (
     <div className="card panel span-5">

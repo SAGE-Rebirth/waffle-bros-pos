@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { adminApi, adminDownload, adminSession, api, inr, EMOJI, SIGNED_OUT_EVENT } from '../api.js';
+import { adminApi, adminDownload, adminSession, adminText, api, inr, EMOJI, SIGNED_OUT_EVENT } from '../api.js';
 import { useConfig } from '../config.jsx';
 
 // ---------- images ----------
@@ -577,6 +577,7 @@ function ModuleCard({ mod, onSaved, notify }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [script, setScript] = useState('');
   useEffect(() => { setDraft(mod.values || {}); }, [mod.values]);
 
   const changed = useMemo(() => {
@@ -610,7 +611,7 @@ function ModuleCard({ mod, onSaved, notify }) {
     if (dirty && !(await put({ settings: changed }, `${mod.name} saved`))) return;
     setSyncing(true);
     try {
-      const r = await api.post('/api/sync');
+      const r = await adminApi.post('/api/sync');
       notify(r.message || (r.ok ? 'Synced' : 'Sync did not run'));
       const list = await adminApi.get('/api/admin/modules');
       const fresh = list.find((m) => m.key === mod.key);
@@ -618,6 +619,16 @@ function ModuleCard({ mod, onSaved, notify }) {
       reload();
     } catch (e) { if (e.status !== 401) setErr(e.message); }
     setSyncing(false);
+  };
+
+  const showScript = async () => {
+    try { setScript(await adminText('/api/admin/google-sheet/script')); } catch (e) { if (e.status !== 401) setErr(e.message); }
+  };
+  const newSecret = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(18));
+    const secret = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    setDraft((d) => ({ ...d, secret }));
+    setErr('');
   };
 
   // A server error like "rate: Input should be less than or equal to 28" points at a field.
@@ -651,6 +662,8 @@ function ModuleCard({ mod, onSaved, notify }) {
             {dirty && <button className="btn ghost" disabled={busy} onClick={() => { setDraft(mod.values || {}); setErr(''); }}>Undo changes</button>}
             {mod.key === 'google_sheets' && (
               <>
+                <button className="btn ghost" disabled={busy} onClick={newSecret} title="Fill in a new random secret">New secret</button>
+                <button className="btn ghost" onClick={showScript}>Setup script</button>
                 <span className="grow" />
                 <span className="small muted">{mod.values?.last_sync ? `Last synced ${mod.values.last_sync}` : 'Not synced yet'}</span>
                 <button className="btn" disabled={syncing || busy || !mod.enabled} onClick={sync}
@@ -660,6 +673,17 @@ function ModuleCard({ mod, onSaved, notify }) {
               </>
             )}
           </div>
+          {mod.key === 'google_sheets' && script && (
+            <div className="script-box">
+              <p className="small">
+                In the Google Sheet: <b>Extensions → Apps Script</b>, replace everything with this script, put the
+                secret above into <code>SECRET</code>, then <b>Deploy → New deployment → Web app</b> (Execute as: Me,
+                Who has access: Anyone). Paste the web app URL above, save, switch on and press Sync now.
+              </p>
+              <textarea readOnly rows={10} value={script} onFocus={(e) => e.target.select()} aria-label="Apps Script code" />
+              <button className="btn ghost" onClick={() => setScript('')}>Hide script</button>
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -742,6 +766,22 @@ export default function Admin({ notify, onChange }) {
   if (!session) return <PinScreen onSignedIn={signIn} />;
 
   const needPin = session.must_change_pin || defaultPin;
+  if (needPin) {
+    // The server refuses other admin actions until the default PIN is changed.
+    return (
+      <div className="page">
+        <div className="page-head"><h1>Admin</h1><span className="grow" /><button className="btn ghost sm" onClick={signOut}>🔒 Sign out</button></div>
+        <div className="banner warn">
+          <span aria-hidden="true">⚠️</span>
+          <div style={{ flex: 1 }}>
+            <b>Choose your own PIN first.</b> The default PIN (1234) is the same in every copy of this POS, so
+            the admin dashboard stays locked until you change it.
+            <ChangePin compact onChanged={pinChanged} />
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="page">
       <div className="page-head">
@@ -752,15 +792,6 @@ export default function Admin({ notify, onChange }) {
         <span className="grow" />
         <button className="btn ghost sm" onClick={signOut}>🔒 Sign out</button>
       </div>
-      {needPin && tab !== 'security' && (
-        <div className="banner warn">
-          <span aria-hidden="true">⚠️</span>
-          <div style={{ flex: 1 }}>
-            <b>You are still using the default PIN (1234).</b> Anyone who knows it can change prices and settings. Pick your own PIN now.
-            <ChangePin compact onChanged={pinChanged} />
-          </div>
-        </div>
-      )}
       {tab === 'menu' && <MenuTab notify={notify} />}
       {tab === 'modules' && <ModulesTab notify={notify} onChange={onChange} />}
       {tab === 'security' && <SecurityTab onPinChanged={pinChanged} />}

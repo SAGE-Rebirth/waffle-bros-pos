@@ -22,6 +22,14 @@ class AppConfig(BaseSettings):
     frontend_dist: Path = PROJECT_ROOT / "frontend" / "dist"
     sync_interval_seconds: int | None = None  # None: use the Google Sheet module's interval_minutes
     start_sync_loop: bool = True
+    # Extra host names the POS may be opened by (comma-separated), e.g. "pos.waffle-bros.in".
+    # IP addresses, single-word names (localhost, shop-pc) and *.local names always work.
+    allowed_hosts: str = ""
+    max_body_bytes: int = 1_000_000
+
+    @property
+    def allowed_host_list(self) -> list[str]:
+        return [h.strip() for h in self.allowed_hosts.split(",") if h.strip()]
 
     @property
     def db_path(self) -> Path:

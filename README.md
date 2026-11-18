@@ -16,16 +16,19 @@ _Screenshots use the sample data from `uv run python -m waffle_pos.demo`._
 | --- | --- |
 | **Billing** | Category menu (Waffle, Sandwich, Combo, Mini Waffle), item cards with photo, name, price and ID, live bill on the right with the order amount. Dine-in / takeaway / delivery, UPI / cash / card, discount, optional customer, Save or Save & Print (80 mm thermal bill). Today's progress is always visible in the top bar. |
 | **Dashboard** | Target ring (month progress vs an even pace), today's goal bar, amount needed per day from tomorrow, projected month end, expenses, net profit. Sales charts (hourly vs an average day, daily with target line, running total vs target pace, weekly, monthly vs target). Best seller, most popular, customer favourite, every item's sales and margin. Expense entry (one-off or monthly). Plain-language insights. |
-| **Day End** | Any day's sales, orders, average bill, cash/UPI/card split, items sold, items that didn't sell, every bill (with cancel). |
+| **Day End** | Any day's sales, orders, average bill, cash/UPI/card split, items sold, items that didn't sell, every bill (with cancel, which asks for the admin PIN). |
 | **Admin** | Behind a PIN (open it from the top bar, or go to `#admin`). **Menu**: add, edit, rename, reorder and hide categories and items, photos, prices, ingredient cost for margins. **Modules**: switch features on or off and change their settings (shop details, colours, billing options, targets, GST, discounts, Google Sheet sync). **Security**: change the PIN. **Backup**: download the database. |
 
 ## Admin dashboard
 
-Menu changes, settings and backups are behind an admin PIN, so staff at the counter can bill but can't change prices. Billing, the dashboard and day-end stay open.
+Menu changes, settings, backups, cancelling a bill, the monthly target, expenses and the Google Sheet sync are behind an admin PIN. Staff at the counter can bill and look at the dashboard and day-end, but they can't change prices or quietly cancel a paid bill. When the counter screens need the PIN (Cancel on Day End, the target or expenses on the Dashboard), a PIN box pops up.
 
-- The PIN is **1234** on a new install. Sign in with it once and the dashboard asks you to choose your own (4 to 8 digits). Do this on the first day.
+- The PIN is **1234** on a new install. Sign in with it and the Admin page shows only one thing: choose your own PIN (4 to 8 digits). Nothing else works until you do, because 1234 is the same in every copy of the POS. Do this on the first day.
+- After 5 wrong PINs on a device, that device has to wait 30 seconds, then longer with every further wrong PIN (up to 15 minutes).
 - Changing the PIN signs everyone out of the admin dashboard, on every device.
 - Sign-in lasts 12 hours on that device.
+- Forgot the PIN? On the shop computer, stop the POS and run `make pin-reset`. It goes back to 1234 and asks for a new one.
+- More about keeping the POS safe (guest Wi-Fi for customers, never port-forwarding 4000, storing backups): [docs/SECURITY.md](docs/SECURITY.md).
 - Features are **modules** you switch on or off under **Admin → Modules**: GST (off until you switch it on), discounts (on, at most 20% of a bill by default), Google Sheet sync (off), and WhatsApp orders (phase 2). Shop details, colours, billing options and targets are always on.
 
 ## How the target maths works
@@ -44,7 +47,7 @@ The maths lives in `src/waffle_pos/services/targets.py` as pure functions with u
 Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) on the shop computer, then from this folder:
 
 ```bash
-docker compose up -d --build     # first time, and after every update (git pull)
+docker compose up -d --build     # first time, and after every update (git pull); or: make up
 ```
 
 The POS is at http://localhost:4000 (and on tablets via the computer's Wi-Fi address). It restarts by itself after a reboot. Useful commands:
@@ -56,8 +59,10 @@ docker compose pull && docker compose up -d --build   # update after a git pull
 ```
 
 - **Data** lives in the Docker volume `pos-data` (`/data/waffle-bros.db` inside the container) and survives rebuilds and updates. Download a copy any time from **Admin → Backup**.
-- **Google Sheet key:** put the service-account JSON in `./secrets/`, then enter `/secrets/<file>.json` as the key path in **Admin → Modules → Google Sheet sync** (see [Google Sheet sync](#google-sheet-sync)).
+- **Google Sheet sync** needs no files: it is set up entirely in **Admin → Modules → Google Sheet sync** (see [Google Sheet sync](#google-sheet-sync)).
 - **Time zone:** `WB_TIMEZONE` in `compose.yaml` (default Asia/Kolkata).
+- **Hardened container:** it runs as a non-root user with a read-only file system, no extra Linux capabilities and no privilege escalation.
+- **Never port-forward 4000** on the router. Docker opens the port past the computer's firewall, so tablets on the Wi-Fi can reach it; to keep it on this computer only, change the port line in `compose.yaml` to `"127.0.0.1:4000:4000"`.
 
 ## Running it without Docker
 
@@ -65,7 +70,7 @@ You need **[uv](https://docs.astral.sh/uv/)** (it installs the right Python by i
 
 **Windows:** double-click `start-pos.bat`. The first run sets everything up, then the POS opens at http://localhost:4000.
 
-**macOS / Linux:** `./start-pos.sh`
+**macOS / Linux:** `./start-pos.sh`, or `make start` (installs, builds the screens and runs the POS).
 
 Or by hand:
 
@@ -77,7 +82,7 @@ uv run waffle-pos                        # http://localhost:4000 (also prints th
 
 API docs are at http://localhost:4000/docs.
 
-Settings for the server process come from environment variables or a `.env` file: `WB_DATA_DIR`, `WB_PORT`, `WB_TIMEZONE` (default `Asia/Kolkata`), `WB_SYNC_INTERVAL_SECONDS`.
+Settings for the server process come from environment variables or a `.env` file: `WB_DATA_DIR`, `WB_PORT`, `WB_TIMEZONE` (default `Asia/Kolkata`), `WB_SYNC_INTERVAL_SECONDS` (overrides the "Sync every" setting), `WB_ALLOWED_HOSTS` (extra host names the POS may be opened by, e.g. `pos.waffle-bros.in`; IP addresses, plain computer names and `*.local` names always work) and `WB_MAX_BODY_BYTES` (largest request, default 1,000,000).
 
 ### Try it with sample data
 
@@ -88,7 +93,7 @@ WB_DATA_DIR=data-demo uv run waffle-pos          # Windows: set WB_DATA_DIR=data
 
 ## Development
 
-See `CLAUDE.md` for architecture and conventions, and `docs/API.md` for the full API reference (also live at http://localhost:4000/docs).
+See `CLAUDE.md` for conventions, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design, [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the hands-on guide, [docs/SECURITY.md](docs/SECURITY.md) for security, and [docs/API.md](docs/API.md) for the full API reference (also live at http://localhost:4000/docs). `make` lists the everyday commands (`make dev`, `make check`, `make openapi`, ...).
 
 ```bash
 uv sync                       # dev tools included
@@ -108,18 +113,18 @@ CI (GitHub Actions) runs the same checks plus the front-end build on every pull 
 
 When it's switched on, the POS copies your bills, items sold and expenses to a Google Sheet every few minutes while the computer is online, so you can look at the numbers from anywhere. Billing never waits for the internet; anything not yet copied catches up later.
 
+It works through a small Google Apps Script that lives inside your sheet. You don't need a Google Cloud project or any key file.
+
 ### Setting it up (once)
 
-1. In the [Google Cloud console](https://console.cloud.google.com/), create a project (any name), then **enable the Google Sheets API** for it.
-2. Under **IAM & Admin → Service accounts**, create a service account. Open it, go to **Keys → Add key → Create new key → JSON**, and save the downloaded file. Keep this file private: it works like a password.
-3. Note the service account's email address (it ends in `.iam.gserviceaccount.com`).
-4. Create a Google Sheet (or use an existing one) and **Share** it with that email address as **Editor**.
-5. Put the key file on the POS computer:
-   - **Docker:** copy it into the `secrets/` folder next to `compose.yaml`. Its path for the POS is `/secrets/<file>.json`.
-   - **Without Docker:** anywhere on the computer; use its full path.
-6. In the POS, open **Admin → Modules → Google Sheet sync**. Paste the **spreadsheet ID** (the long code in the sheet's address between `/d/` and `/edit`) and the **key file path**, switch the module on, save, and press **Sync now**.
+1. Create a Google Sheet (or use an existing one).
+2. In the POS, open **Admin → Modules → Google Sheet sync**. Press **New secret**: it fills in a long random secret. Press **Save**.
+3. Press **Setup script** and copy the script it shows.
+4. In the Google Sheet, open **Extensions → Apps Script**. Delete what's there and paste the script. Replace `PASTE_THE_SECRET_FROM_THE_POS` with the secret from step 2 (the same text in both places), and save.
+5. In Apps Script, choose **Deploy → New deployment**, type **Web app**. Set **Execute as: Me** and **Who has access: Anyone**, then **Deploy**, and allow the permissions Google asks for. "Anyone" only means the POS doesn't need to sign in to Google; every request must carry the secret.
+6. Copy the **web app URL** (it ends in `/exec`) into **Web app URL** in the POS, save, switch the module on, and press **Sync now**.
 
-If something is wrong, Sync now says what (for example a wrong path, or the sheet not shared with the service account).
+If something is wrong, Sync now says what. For example, a wrong secret, a URL that isn't the `/exec` one, or access not set to Anyone. If you change the secret later, put the same value in the script and deploy a new version (**Deploy → Manage deployments → Edit → New version**, which keeps the same URL). Anything typed at the counter that starts with `=`, `+`, `-` or `@` is written as plain text, never as a formula.
 
 ### What it writes
 
@@ -136,13 +141,14 @@ The POS creates any of these tabs that are missing and never touches other tabs,
 
 ## Backups
 
-All data lives in `data/waffle-bros.db` (SQLite). **Admin → Backup** downloads a consistent copy, even while the shop is billing.
+All data lives in `data/waffle-bros.db` (SQLite). **Admin → Backup** downloads a consistent copy, even while the shop is billing; `make backup` saves one into `backups/` on the shop computer. Keep backups private: they hold customer phone numbers and the admin PIN's hash.
 
 ## Project layout
 
 ```
 src/waffle_pos/
-  app.py            FastAPI app factory (routes, error format, serves frontend/dist)
+  app.py            FastAPI app factory (routes, middlewares, error format, serves frontend/dist)
+  security.py       Host check, request size limit, security headers
   __main__.py       `uv run waffle-pos`
   config.py         process settings (WB_* env vars)
   clock.py          shop-local time helpers
@@ -152,10 +158,12 @@ src/waffle_pos/
   services/         business logic: orders, menu, auth (admin PIN), targets (pure maths), analytics, insights
   db/               SQLAlchemy models, session, migrations runner, starter menu
   migrations/       Alembic
-  integrations/     Google Sheets sync
+  integrations/     Google Sheet sync and the Apps Script to paste into the sheet
   demo.py           demo data generator
 tests/              pytest: API, target maths, analytics, Sheets sync (mocked)
 frontend/           React + Vite screens
+docs/               API, architecture, implementation guide, security
+Makefile            everyday commands (`make help`)
 ```
 
 ## Phase 2: WhatsApp ordering (planned)

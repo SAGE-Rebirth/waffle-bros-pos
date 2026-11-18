@@ -22,7 +22,7 @@ change things need an admin token in `$T`: see [Admin & config](#admin--config).
 - [Orders](#orders): `POST /api/orders`, `GET /api/orders`, `GET /api/orders/{id}`, `POST /api/orders/{id}/cancel`
 - [Dashboard](#dashboard): `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/day-end`
 - [Finance](#finance): `PUT /api/targets/{month}`, `GET /api/expenses`, `POST /api/expenses`, `DELETE /api/expenses/{id}`
-- [Admin & config](#admin--config): `GET /api/config`, `POST /api/admin/login`, `POST /api/admin/pin`, `GET /api/admin/modules`, `PUT /api/admin/modules/{key}`
+- [Admin & config](#admin--config): `GET /api/config`, `POST /api/admin/login`, `POST /api/admin/pin`, `GET /api/admin/modules`, `PUT /api/admin/modules/{key}`, `GET /api/admin/google-sheet/script`
 - [System](#system): `GET /api/health`, `POST /api/sync`, `GET /api/backup`, `POST /api/integrations/whatsapp`
 - [Recipes](#recipes)
 
@@ -30,14 +30,15 @@ change things need an admin token in `$T`: see [Admin & config](#admin--config).
 
 | Topic | Rule |
 | --- | --- |
-| Base URL | `http://localhost:4000` on the shop computer, or `http://<its Wi-Fi IP>:4000` from a tablet. `WB_PORT` changes the port. |
-| Format | JSON in and out. Send `Content-Type: application/json` with every body. |
+| Base URL | `http://localhost:4000` on the shop computer, or `http://<its Wi-Fi IP>:4000` from a tablet. `WB_PORT` changes the port. The `Host` must be an IP address, a single-word name (`localhost`, `shop-pc`), a `*.local` name or listed in `WB_ALLOWED_HOSTS`; anything else gets 400 (protection against DNS rebinding). |
+| Format | JSON in and out. Send `Content-Type: application/json` with every body. Bodies over 1,000,000 bytes (`WB_MAX_BODY_BYTES`) get 413. `Infinity` and `NaN` are refused. |
+| Limits | Money fields (prices, costs, discounts, expenses) are at most ₹1,00,00,000 (₹1 crore), a monthly target at most ₹10,00,00,000. A bill has at most 100 lines; notes at most 300 characters; images must be `data:image/...` URLs or paths on this server, at most 200,000 characters. |
 | Money | Rupees as JSON numbers (`199.0` is ₹199), rounded to 2 decimals. GST, when the GST module is on, is added on top of menu prices. |
 | Times | Shop-local time (`WB_TIMEZONE`, default `Asia/Kolkata`), never UTC. Timestamps are `"YYYY-MM-DD HH:MM:SS"`, dates `"YYYY-MM-DD"`, months `"YYYY-MM"`. "Today" and "this month" are in shop time. |
 | Revenue | Only **paid** bills count towards revenue, targets and item stats. Cancelled bills are kept but excluded. |
 | Ids | Numeric `id`s are used in paths and bodies. A menu item's `code` (`W01`) and a bill's `bill_no` (`WB261118-001`) are for people. |
 | Errors | JSON `{"error": "message"}`, a message you can show to the cashier as-is. |
-| Auth | Billing, reading and reporting are open to anyone on the shop network, so keep port 4000 off the internet. Changing the menu, downloading a backup and the `/api/admin/*` endpoints need an admin token: sign in with the PIN (`POST /api/admin/login`) and send `Authorization: Bearer <token>`. Those endpoints are marked **Admin** below. See [Admin & config](#admin--config). |
+| Auth | Billing, looking up bills and reading the reports are open to anyone on the shop network, so keep port 4000 off the internet. Everything else needs an admin token: menu changes, cancelling a bill, targets, adding or deleting expenses, Google Sheet sync, backups and the `/api/admin/*` endpoints. Sign in with the PIN (`POST /api/admin/login`) and send `Authorization: Bearer <token>`. Those endpoints are marked **Admin** below. While the PIN is still the default `1234`, an admin token only works for `POST /api/admin/pin` (others answer 403). See [Admin & config](#admin--config) and [SECURITY.md](SECURITY.md). |
 
 Error status codes:
 
@@ -45,8 +46,11 @@ Error status codes:
 | --- | --- | --- |
 | 400 | Request understood but refused | `{"error": "That item ID is already used"}` |
 | 401 | Admin token missing, wrong or expired (or wrong PIN at sign-in) | `{"error": "Admin PIN required"}` |
-| 404 | No such order or item | `{"error": "Not found"}` |
+| 403 | Signed in with the default PIN 1234, which can only change the PIN | `{"error": "Change the default PIN 1234 first (POST /api/admin/pin)"}` |
+| 404 | No such order or item (also unknown `/api/...` paths, and ids too big to exist) | `{"error": "Not found"}` |
+| 413 | Request body too large | `{"error": "The request is too large"}` |
 | 422 | Validation failed, as `field: reason` | `{"error": "payment_method: Input should be 'cash', 'upi' or 'card'"}` |
+| 429 | Too many wrong PINs; has a `Retry-After` header (seconds) | `{"error": "Too many wrong PINs. Try again in 30 seconds."}` |
 | 501 | Not built yet | `{"error": "WhatsApp ordering is planned for phase 2"}` |
 
 Each request is one database transaction: it is saved completely or not at all.
@@ -55,7 +59,7 @@ Each request is one database transaction: it is saved completely or not at all.
 
 Reading the menu is open (the billing screen needs it). **Every menu change needs the admin token**
 (`Authorization: Bearer $T`, see [Admin & config](#admin--config)); without it the answer is 401
-`Admin PIN required`.
+`Admin PIN required`, and with a default-PIN token 403.
 
 ### `GET /api/menu`: the full menu
 
@@ -156,9 +160,9 @@ Errors: 400 `Unknown id 99`, 422 for an empty list.
 | `code` | string, 1-12 chars | yes | Short unique ID shown on the till, e.g. `SH01`. Upper-cased. |
 | `name` | string, 1-120 chars | yes | |
 | `category_id` | integer | yes | An existing category `id`. |
-| `price` | number >= 0 | yes | Selling price in rupees, before GST. GST is not per item: it's the `gst` module. |
-| `cost` | number >= 0 | no, `0` | Cost to make in rupees. Only used for margins; `0` = unknown. |
-| `image` | string or null | no | Image URL. |
+| `price` | number 0 to 1,00,00,000 | yes | Selling price in rupees, before GST. GST is not per item: it's the `gst` module. |
+| `cost` | number 0 to 1,00,00,000 | no, `0` | Cost to make in rupees. Only used for margins; `0` = unknown. |
+| `image` | string or null | no | A `data:image/(png\|jpeg\|webp\|gif);base64,...` URL (what the Admin page uploads) or a path on this server, at most 200,000 characters. External URLs are refused (422). |
 | `veg` | boolean | no, `true` | |
 | `active` | boolean | no, `true` | `false` hides it from billing. |
 
@@ -246,15 +250,15 @@ Creates a **paid** bill. Prices always come from the menu, never from the reques
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `items` | array of `{item_id, qty}` | yes, at least one | `item_id` = menu item `id`; `qty` 1-999, default 1. |
-| `discount` | number >= 0 | no, `0` | Rupees off before GST. Needs the `discounts` module on (it is by default), and can be at most `max_discount_pct` (default 20) % of the subtotal. |
+| `items` | array of `{item_id, qty}` | yes, 1 to 100 lines | `item_id` = menu item `id` of an **active** (not hidden) item; `qty` 1-999, default 1. |
+| `discount` | number 0 to 1,00,00,000 | no, `0` | Rupees off before GST. Needs the `discounts` module on (it is by default), and can be at most `max_discount_pct` (default 20) % of the subtotal. |
 | `payment_method` | `cash` / `upi` / `card` | no, `cash` | |
 | `order_type` | `dine-in` / `takeaway` / `delivery` | no, `dine-in` | |
 | `source` | `counter` / `whatsapp` | no, `counter` | |
 | `customer_name` | string <= 80 | no | |
 | `customer_phone` | string <= 20 | no | |
 | `delivery_address` | string <= 200 | no | |
-| `note` | string | no | |
+| `note` | string <= 300 | no | |
 
 ```bash
 curl -X POST http://localhost:4000/api/orders -H 'Content-Type: application/json' \
@@ -287,7 +291,10 @@ curl -X POST http://localhost:4000/api/orders -H 'Content-Type: application/json
 
 The example was billed with the `gst` module on at 5%. With GST off (the default) `tax` is `0.0`.
 
-Errors: 400 `The order is empty`, 400 `Unknown item 999`,
+Money is rounded to 2 decimals with halves going up (`services.targets.money`).
+
+Errors: 400 `The order is empty`, 400 `Unknown item 999`, 400 `Nutella is hidden from the menu and
+can't be billed`,
 400 `Discounts are switched off in the admin dashboard` (a discount was sent while the `discounts`
 module is off), 400 `Discount can be at most 20% of the bill (₹80)` (over the cap; the rupee
 figure is the cap for this bill), 422 e.g. `payment_method: Input should be 'cash', 'upi' or 'card'`.
@@ -321,21 +328,22 @@ curl http://localhost:4000/api/orders/1
 
 Errors: 404 `Not found`.
 
-### `POST /api/orders/{order_id}/cancel`: cancel a bill
+### `POST /api/orders/{order_id}/cancel`: cancel a bill (Admin)
 
-Sets `status` to `cancelled` and returns the bill. It stays in the database (bills are history) but
+Needs the admin token, so a paid bill can't be quietly cancelled at the counter (the Day End screen
+asks for the PIN). Sets `status` to `cancelled` and returns the bill. It stays in the database (bills are history) but
 stops counting towards revenue, targets and item stats; the day-end sheet lists it under
 `cancelled`. The next Google Sheet sync appends the bill again with status `cancelled`. No body.
 
 ```bash
-curl -X POST http://localhost:4000/api/orders/517/cancel
+curl -X POST http://localhost:4000/api/orders/517/cancel -H "Authorization: Bearer $T"
 ```
 
 ```json
 {"id": 517, "bill_no": "WB261118-002", ..., "total": 396.9, "status": "cancelled", ...}
 ```
 
-Errors: 404 `Not found`.
+Errors: 401, 403, 404 `Not found`.
 
 ## Dashboard
 
@@ -573,18 +581,20 @@ curl 'http://localhost:4000/api/day-end?date=2026-11-17'
 
 ## Finance
 
-### `PUT /api/targets/{month}`: set a month's revenue target
+### `PUT /api/targets/{month}`: set a month's revenue target (Admin)
+
+Needs the admin token (the Dashboard asks for the PIN).
 
 `month` is `YYYY-MM`. Months without their own target use the `targets` module's
 `default_target` (₹1,00,000 out of the box).
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `amount` | number > 0 | yes | Rupees. |
-| `makeDefault` | boolean | no, `false` | Also save it as `targets.default_target`, used for months without a target. No admin token needed. |
+| `amount` | number > 0, at most 10,00,00,000 | yes | Rupees. |
+| `makeDefault` | boolean | no, `false` | Also save it as `targets.default_target`, used for months without a target. |
 
 ```bash
-curl -X PUT http://localhost:4000/api/targets/2026-12 -H 'Content-Type: application/json' \
+curl -X PUT http://localhost:4000/api/targets/2026-12 -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
   -d '{"amount": 120000, "makeDefault": false}'
 ```
 
@@ -592,11 +602,11 @@ curl -X PUT http://localhost:4000/api/targets/2026-12 -H 'Content-Type: applicat
 {"ok": true}
 ```
 
-Errors: 400 `Enter a valid month (YYYY-MM)`, 422 `amount: Input should be greater than 0`.
+Errors: 400 `Enter a valid month (YYYY-MM)`, 401, 403, 422 `amount: Input should be greater than 0`.
 
 ### `GET /api/expenses?month=YYYY-MM`: a month's expenses
 
-Default month: the current one. **One-off** expenses count in the month of their `date`;
+Open (no token). Default month: the current one. **One-off** expenses count in the month of their `date`;
 **recurring** ones (rent, salaries) count in every month from the month of their `date` on, until
 deleted. `byCategory` is biggest first; lists are newest first.
 
@@ -623,18 +633,20 @@ curl 'http://localhost:4000/api/expenses?month=2026-11'
 
 Errors: 400 `Enter a valid month (YYYY-MM)`.
 
-### `POST /api/expenses`: add an expense
+### `POST /api/expenses`: add an expense (Admin)
+
+Needs the admin token (the Dashboard asks for the PIN).
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `category` | string, 1-30 chars | yes | Free text, stored lower-case. The app offers the `targets` module's `expense_categories` (rent, salary, ingredients, electricity, packaging, marketing, maintenance, other by default). |
-| `amount` | number > 0 | yes | Rupees. |
+| `amount` | number > 0, at most 1,00,00,000 | yes | Rupees. |
 | `date` | `YYYY-MM-DD` | no, today | |
-| `note` | string | no | |
+| `note` | string <= 300 | no | |
 | `recurring` | boolean | no, `false` | `true` for a monthly cost: counts every month from `date`. |
 
 ```bash
-curl -X POST http://localhost:4000/api/expenses -H 'Content-Type: application/json' \
+curl -X POST http://localhost:4000/api/expenses -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
   -d '{"category": "gas", "amount": 1850, "date": "2026-11-18", "note": "LPG cylinder"}'
 ```
 
@@ -642,13 +654,13 @@ curl -X POST http://localhost:4000/api/expenses -H 'Content-Type: application/js
 {"id": 15}
 ```
 
-### `DELETE /api/expenses/{expense_id}`: delete an expense
+### `DELETE /api/expenses/{expense_id}`: delete an expense (Admin)
 
 Permanent. A deleted recurring expense stops counting in every month, past ones included. An
 unknown id is not an error. Rows already copied to the Google Sheet stay there.
 
 ```bash
-curl -X DELETE http://localhost:4000/api/expenses/15
+curl -X DELETE http://localhost:4000/api/expenses/15 -H "Authorization: Bearer $T"
 ```
 
 ```json
@@ -668,11 +680,14 @@ settings, and the Admin page (`#admin`) draws its forms from what these endpoint
 | `targets` | Monthly target, insight thresholds, expense categories | always on | `default_target`, `slow_mover_pct`, `low_margin_pct`, `expense_categories` |
 | `gst` | GST on bills, GSTIN on the bill | off | `rate` (0-28 %), `gstin` |
 | `discounts` | Rupee discount on bills | on | `max_discount_pct` (default 20) |
-| `google_sheets` | Copy bills, items and expenses to a Google Sheet | off | `spreadsheet_id`, `credentials_path` (secret), `interval_minutes`, `last_sync` (read-only) |
-| `whatsapp` | Phase 2 delivery orders | off | `business_number`, `delivery_buildings`, `min_order` |
+| `google_sheets` | Copy bills, items and expenses to a Google Sheet through an Apps Script web app | off | `web_app_url` (`https://script.google.com/macros/s/.../exec`), `secret` (secret, 16+ characters), `interval_minutes`, `last_sync` (read-only) |
+| `whatsapp` | Phase 2 delivery orders | off | `business_number`, `delivery_buildings` (up to 50), `min_order` |
+
+`shop.logo` must be a `data:image/...` URL or a path on this server (at most 200,000 characters);
+`targets.expense_categories` holds up to 30 entries. Numbers can't be `Infinity` or `NaN`.
 
 The first four are **core** modules and can't be switched off. A hidden `admin` module holds the
-PIN; it never appears in these responses. **Secret** settings (the Google key file path) are left
+PIN; it never appears in these responses. **Secret** settings (the Google Sheet `secret`) are left
 out of the public `GET /api/config`. **Read-only** settings (`last_sync`) are written by the server
 and ignored if you send them.
 
@@ -682,17 +697,23 @@ and ignored if you send them.
    `session_hours`).
 2. Send it as `Authorization: Bearer <token>` to every endpoint marked **Admin**.
 3. The PIN is **1234** until the owner changes it. While it is, `must_change_pin` and the public
-   `default_pin` are `true`, and the Admin page asks for a new one.
+   `default_pin` are `true`, and the token works **only** for `POST /api/admin/pin`. Every other
+   Admin endpoint answers 403 `Change the default PIN 1234 first (POST /api/admin/pin)`. The
+   Admin page shows only the change-PIN card.
 4. Changing the PIN signs everyone out: all earlier tokens stop working and the response carries a
    fresh token for whoever changed it.
+5. Wrong PINs are throttled: after 5 from one device, sign-in from it is locked for 30 seconds,
+   doubling with each further wrong PIN up to 15 minutes. 30 wrong PINs from anywhere within 10
+   minutes lock sign-in for everyone. A locked attempt gets 429 with `Retry-After`. The counts are
+   kept in memory and reset when the POS restarts.
 
 A missing, wrong or expired token gives 401 `{"error": "Admin PIN required"}`.
 
-To keep a token in `$T` for the examples on this page:
+To keep a token in `$T` for the examples on this page (after the PIN has been changed; use yours):
 
 ```bash
 T=$(curl -s -X POST http://localhost:4000/api/admin/login -H 'Content-Type: application/json' \
-  -d '{"pin": "1234"}' | jq -r .token)
+  -d '{"pin": "4821"}' | jq -r .token)
 ```
 
 ### `GET /api/config`: settings for the POS screens
@@ -735,7 +756,7 @@ curl http://localhost:4000/api/config
     },
     "gst": {"enabled": false, "settings": {"rate": 5, "gstin": ""}},
     "discounts": {"enabled": true, "settings": {"max_discount_pct": 20}},
-    "google_sheets": {"enabled": false, "settings": {"spreadsheet_id": "", "interval_minutes": 5, "last_sync": ""}},
+    "google_sheets": {"enabled": false, "settings": {"web_app_url": "", "interval_minutes": 5, "last_sync": ""}},
     "whatsapp": {"enabled": false, "settings": {"business_number": "", "delivery_buildings": [], "min_order": 0}}
   },
   "default_pin": true
@@ -746,7 +767,7 @@ curl http://localhost:4000/api/config
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `pin` | string, 1-8 chars | yes | `"1234"` until changed. |
+| `pin` | string, 1-8 chars | yes | `"1234"` until changed. Anything that isn't 4 to 8 digits is simply a wrong PIN. |
 
 ```bash
 curl -X POST http://localhost:4000/api/admin/login -H 'Content-Type: application/json' \
@@ -761,15 +782,19 @@ curl -X POST http://localhost:4000/api/admin/login -H 'Content-Type: application
 }
 ```
 
-`expires_at` is a Unix timestamp (seconds). Errors: 401 `Wrong PIN`.
+`expires_at` is a Unix timestamp (seconds). With `must_change_pin: true` the token can only be used
+for `POST /api/admin/pin`.
 
-### `POST /api/admin/pin`: change the PIN (Admin)
+Errors: 401 `Wrong PIN`, 429 `Too many wrong PINs. Try again in 30 seconds.` (with `Retry-After`).
+
+### `POST /api/admin/pin`: change the PIN (Admin, default PIN allowed)
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `new_pin` | string | yes | 4 to 8 digits, not `1234`. |
 
-Signs out every other admin session. Use the token in the response from now on.
+Needs a valid token, and is the only Admin endpoint that also accepts a token from the default PIN
+1234. Signs out every other admin session. Use the token in the response from now on.
 
 ```bash
 curl -X POST http://localhost:4000/api/admin/pin -H "Authorization: Bearer $T" \
@@ -796,7 +821,7 @@ A list in display order (core modules first). Each entry:
 | `core` | `true` = can't be switched off |
 | `enabled` | On or off |
 | `settings_schema` | JSON Schema of the settings, generated from the module's Pydantic model. The Admin page draws its form from it (`title`, `description`, `default`, limits, enums, `format: "color"` / `"image"`, `readOnly`). |
-| `values` | Current settings, **including** secret ones such as `credentials_path` |
+| `values` | Current settings, **including** secret ones such as the Google Sheet `secret` |
 | `readonly_fields` | Settings the server writes; shown but not editable |
 
 ```bash
@@ -816,15 +841,15 @@ curl http://localhost:4000/api/admin/modules -H "Authorization: Bearer $T"
     "enabled": false,
     "settings_schema": {
       "properties": {
-        "spreadsheet_id": {"default": "", "description": "The long code in the sheet's URL between /d/ and /edit.", "title": "Spreadsheet ID", "type": "string"},
-        "credentials_path": {"default": "", "description": "Full path on the POS computer. In Docker: /secrets/<file>.json", "title": "Service-account key file", "type": "string"},
+        "web_app_url": {"default": "", "description": "From the sheet's Apps Script: Deploy -> Web app. Looks like https://script.google.com/macros/s/.../exec", "maxLength": 300, "title": "Web app URL", "type": "string"},
+        "secret": {"default": "", "description": "Any long random text (16+ characters). Paste the same text into SECRET in the script.", "maxLength": 200, "title": "Secret", "type": "string"},
         "interval_minutes": {"default": 5, "maximum": 1440, "minimum": 1, "title": "Sync every (minutes)", "type": "integer"},
         "last_sync": {"default": "", "readOnly": true, "title": "Last synced", "type": "string"}
       },
       "title": "GoogleSheetsSettings",
       "type": "object"
     },
-    "values": {"spreadsheet_id": "", "credentials_path": "", "interval_minutes": 5, "last_sync": ""},
+    "values": {"web_app_url": "", "secret": "", "interval_minutes": 5, "last_sync": ""},
     "readonly_fields": ["last_sync"]
   },
   ...
@@ -877,6 +902,21 @@ Errors:
 | 400 | `'Shop details' is a core module and can't be switched off` | `enabled: false` on a core module |
 | 400 | `rate: Input should be less than or equal to 28` | A setting failed validation (`field: reason`) |
 | 401 | `Admin PIN required` | No valid token |
+| 403 | `Change the default PIN 1234 first (POST /api/admin/pin)` | The PIN is still 1234 |
+
+### `GET /api/admin/google-sheet/script`: the Apps Script for the Google Sheet (Admin)
+
+Returns the Google Apps Script (`src/waffle_pos/integrations/apps_script.gs`) as `text/plain`. It is
+what the Admin page's **Setup script** button shows. Paste it into the spreadsheet
+(**Extensions → Apps Script**), set its `SECRET` to the module's `secret`, then **Deploy → New
+deployment → Web app** (Execute as: Me, Who has access: Anyone), and put the `/exec` URL into the
+module's `web_app_url`.
+
+```bash
+curl http://localhost:4000/api/admin/google-sheet/script -H "Authorization: Bearer $T" > apps_script.gs
+```
+
+Errors: 401, 403.
 
 ## System
 
@@ -892,11 +932,13 @@ curl http://localhost:4000/api/health
 {"status": "ok", "version": "0.2.0"}
 ```
 
-### `POST /api/sync`: sync to the Google Sheet now
+### `POST /api/sync`: sync to the Google Sheet now (Admin)
 
-Needs the `google_sheets` module switched on and set up (see
-[`PUT /api/admin/modules/{key}`](#put-apiadminmoduleskey-switch-a-module-or-change-its-settings-admin)).
-No admin token needed. The sync writes six tabs, creating any that are missing:
+Needs the admin token, and the `google_sheets` module switched on and set up (see
+[`PUT /api/admin/modules/{key}`](#put-apiadminmoduleskey-switch-a-module-or-change-its-settings-admin)
+and [`GET /api/admin/google-sheet/script`](#get-apiadmingoogle-sheetscript-the-apps-script-for-the-google-sheet-admin)).
+Each sync is one HTTPS POST of the new rows and the summaries, with the secret, to the Apps Script
+web app, which writes six tabs, creating any that are missing:
 
 | Tab | How it's written | What's in it |
 | --- | --- | --- |
@@ -909,8 +951,10 @@ No admin token needed. The sync writes six tabs, creating any that are missing:
 
 Up to 500 bills are pushed per run, so a long backlog catches up over a few runs. Any other tab
 in the spreadsheet (for example an `Overview` tab with your own KPI formulas and charts) is never
-touched. The same sync also runs in the background every few minutes. Always answers 200, so
-check the body:
+touched. Text that starts with `=`, `+`, `-` or `@` is sent with a leading apostrophe so it can never
+run as a formula (the script escapes it again). The same sync also runs in the background every
+`interval_minutes`. Only one sync runs at a time: a second one answers `A sync is already running.
+Try again in a moment.` Apart from 401/403, it always answers 200, so check the body:
 
 | Field | Meaning |
 | --- | --- |
@@ -920,18 +964,22 @@ check the body:
 | `at` | Shop-local time of a successful sync, else `null` |
 
 ```bash
-curl -X POST http://localhost:4000/api/sync
+curl -X POST http://localhost:4000/api/sync -H "Authorization: Bearer $T"
 ```
 
 ```json
 {"ok": false, "message": "Google Sheet sync is switched off in the admin dashboard.", "skipped": true, "at": null}
 ```
 
-Switched on but without a spreadsheet ID or key file:
+Switched on but without a web app URL or secret:
 
 ```json
-{"ok": false, "message": "Add the spreadsheet ID and key file path in Admin → Google Sheet sync.", "skipped": false, "at": null}
+{"ok": false, "message": "Add the web app URL and secret in Admin → Modules → Google Sheet sync.", "skipped": false, "at": null}
 ```
+
+Other `message`s: `Wrong secret: it must match the POS admin page` (the script's `SECRET` differs),
+`The web app didn't answer with JSON...` (wrong URL, or access not set to Anyone), `Could not reach
+the Google Sheet web app: ...` (offline; rows wait for the next run).
 
 ### `GET /api/backup`: download a database backup (Admin)
 
@@ -952,20 +1000,21 @@ answers 501 `{"error": "WhatsApp ordering is planned for phase 2"}` for now.
 ## Recipes
 
 Copy-paste one-liners. Set `B=http://localhost:4000` first. `jq` is used to pick values out of the
-output; menu changes, backups and module settings need the admin token in `$T` (first recipe).
+output; anything marked **Admin** needs the admin token in `$T` (first two recipes).
 
 ```bash
-# Sign in and keep the admin token in $T (use your own PIN once it's changed from 1234)
+# First time only: sign in with the default PIN and change it (until then the token can do nothing else)
 T=$(curl -sX POST $B/api/admin/login -H 'Content-Type: application/json' -d '{"pin":"1234"}' | jq -r .token)
-
-# Change the admin PIN (signs everyone else out), and keep the new token
 T=$(curl -sX POST $B/api/admin/pin -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"new_pin":"4821"}' | jq -r .token)
+
+# Every other time: sign in with your PIN and keep the admin token in $T
+T=$(curl -sX POST $B/api/admin/login -H 'Content-Type: application/json' -d '{"pin":"4821"}' | jq -r .token)
 
 # Bill an order: 2 x item 5 and 1 x item 16, paid by UPI, takeaway
 curl -sX POST $B/api/orders -H 'Content-Type: application/json' -d '{"items":[{"item_id":5,"qty":2},{"item_id":16,"qty":1}],"payment_method":"upi","order_type":"takeaway"}'
 
 # Cancel bill id 517
-curl -sX POST $B/api/orders/517/cancel
+curl -sX POST $B/api/orders/517/cancel -H "Authorization: Bearer $T"
 
 # Today's revenue, bill count and target progress
 curl -s $B/api/dashboard | jq '.target | {todayRevenue, todayOrders, todayTarget, revenue, target, progressPct}'
@@ -974,13 +1023,13 @@ curl -s $B/api/dashboard | jq '.target | {todayRevenue, todayOrders, todayTarget
 curl -s $B/api/day-end | jq '.payments'
 
 # Add a monthly (recurring) expense: rent from 1 Dec
-curl -sX POST $B/api/expenses -H 'Content-Type: application/json' -d '{"category":"rent","amount":25000,"date":"2026-12-01","recurring":true,"note":"Shop rent"}'
+curl -sX POST $B/api/expenses -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"category":"rent","amount":25000,"date":"2026-12-01","recurring":true,"note":"Shop rent"}'
 
 # Add a one-off expense dated today
-curl -sX POST $B/api/expenses -H 'Content-Type: application/json' -d '{"category":"ingredients","amount":3200,"note":"Nutella, cream"}'
+curl -sX POST $B/api/expenses -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"category":"ingredients","amount":3200,"note":"Nutella, cream"}'
 
 # Set this month's target to ₹1,20,000 (and make it the default)
-curl -sX PUT $B/api/targets/$(date +%Y-%m) -H 'Content-Type: application/json' -d '{"amount":120000,"makeDefault":true}'
+curl -sX PUT $B/api/targets/$(date +%Y-%m) -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"amount":120000,"makeDefault":true}'
 
 # Add a category, then a menu item in it (use the id the first call returns)
 curl -sX POST $B/api/categories -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"name":"Shakes"}'
@@ -1004,11 +1053,14 @@ curl -sX PUT $B/api/admin/modules/discounts -H "Authorization: Bearer $T" -H 'Co
 # Which modules are on?
 curl -s $B/api/config | jq '.modules | map_values(.enabled)'
 
-# Set up Google Sheet sync and switch it on (Docker path shown; use the real path without Docker)
-curl -sX PUT $B/api/admin/modules/google_sheets -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"enabled":true,"settings":{"spreadsheet_id":"<spreadsheet-id>","credentials_path":"/secrets/<key-file>.json"}}'
+# Get the Apps Script to paste into the Google Sheet (set its SECRET, deploy as a web app)
+curl -s $B/api/admin/google-sheet/script -H "Authorization: Bearer $T" > apps_script.gs
+
+# Set up Google Sheet sync with the web app URL and the same secret, and switch it on
+curl -sX PUT $B/api/admin/modules/google_sheets -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d '{"enabled":true,"settings":{"web_app_url":"https://script.google.com/macros/s/<deployment-id>/exec","secret":"<16+ random characters>"}}'
 
 # Trigger a Google Sheet sync now
-curl -sX POST $B/api/sync
+curl -sX POST $B/api/sync -H "Authorization: Bearer $T"
 
 # Export a backup of the database into the current folder
 curl -sOJ $B/api/backup -H "Authorization: Bearer $T"

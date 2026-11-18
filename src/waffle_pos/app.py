@@ -18,6 +18,8 @@ from waffle_pos.db.migrate import upgrade_to_head
 from waffle_pos.db.seed import seed_if_empty
 from waffle_pos.db.session import make_engine, make_session_factory, session_scope
 from waffle_pos.integrations import sheets
+from waffle_pos.security import BodyLimit, HostCheck, SecurityHeaders
+from waffle_pos.services.auth import LoginThrottle
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
@@ -77,11 +79,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
     app.state.config = config
     app.state.session_factory = factory
+    app.state.login_throttle = LoginThrottle()
+    # The last one added runs first: headers wrap everything (errors too), then foreign Host
+    # names are refused, then oversized bodies.
+    app.add_middleware(BodyLimit, max_bytes=config.max_body_bytes)
+    app.add_middleware(HostCheck, extra_hosts=config.allowed_host_list)
+    app.add_middleware(SecurityHeaders)
 
     # The front end reads {"error": "..."} from failed requests.
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
-        return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+        return JSONResponse(
+            {"error": exc.detail},
+            status_code=exc.status_code,
+            headers=getattr(exc, "headers", None),
+        )
+
+    @app.exception_handler(OverflowError)
+    async def _overflow(_: Request, __: OverflowError) -> JSONResponse:
+        # e.g. /api/orders/99999999999999999999: too big for SQLite, so it can't exist.
+        return JSONResponse({"error": "Not found"}, status_code=404)
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
@@ -100,6 +117,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str) -> FileResponse:
+            if path == "api" or path.startswith("api/"):
+                raise StarletteHTTPException(404, "Not Found")  # unknown API paths stay JSON 404s
             file = (dist / path).resolve()
             if path and file.is_file() and file.is_relative_to(dist.resolve()):
                 return FileResponse(file)

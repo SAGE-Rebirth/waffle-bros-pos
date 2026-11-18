@@ -4,7 +4,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Path
 
-from waffle_pos.api.deps import ADMIN_401, DB, INVALID, AdminOnly, bad_request, errors
+from waffle_pos.api.deps import ADMIN_401, ADMIN_403, DB, INVALID, AdminOnly, bad_request, errors
 from waffle_pos.schemas import CategoryIn, DeleteItemOut, IdOut, ItemIn, MenuOut, OkOut, ReorderIn
 from waffle_pos.services import menu
 
@@ -28,7 +28,14 @@ def get_menu(db: DB) -> MenuOut:
     "/categories",
     **ADMIN,
     summary="Add a menu category",
-    responses=errors({401: ADMIN_401, 400: "That category already exists (case-insensitive).", 422: INVALID}),
+    responses=errors(
+        {
+            401: ADMIN_401,
+            403: ADMIN_403,
+            400: "That category already exists (case-insensitive).",
+            422: INVALID,
+        }
+    ),
 )
 def add_category(body: CategoryIn, db: DB) -> IdOut:
     """Create a category at the end of the list. Returns the new category's `id`."""
@@ -90,7 +97,7 @@ def update_item(item_id: ItemId, body: ItemIn, db: DB) -> OkOut:
     "/items/{item_id}",
     **ADMIN,
     summary="Delete or hide a menu item",
-    responses=errors({401: ADMIN_401, 422: INVALID}),
+    responses=errors({401: ADMIN_401, 403: ADMIN_403, 422: INVALID}),
 )
 def delete_item(item_id: ItemId, db: DB) -> DeleteItemOut:
     """Delete an item that has never been billed. An item that appears on past bills is hidden
@@ -127,7 +134,9 @@ def rename_category(category_id: CategoryId, body: CategoryIn, db: DB) -> OkOut:
     "/categories/{category_id}",
     **ADMIN,
     summary="Delete an empty menu category",
-    responses=errors({401: ADMIN_401, 400: "The category still has items.", 404: "No such category."}),
+    responses=errors(
+        {401: ADMIN_401, 403: ADMIN_403, 400: "The category still has items.", 404: "No such category."}
+    ),
 )
 def delete_category(category_id: CategoryId, db: DB) -> OkOut:
     """Delete a category that has no items (hidden items count). Move or remove its items first."""
@@ -144,7 +153,7 @@ def delete_category(category_id: CategoryId, db: DB) -> OkOut:
     "/categories/reorder",
     **ADMIN,
     summary="Set the order of menu categories",
-    responses=errors({401: ADMIN_401, 400: "An id doesn't exist.", 422: INVALID}),
+    responses=errors({401: ADMIN_401, 403: ADMIN_403, 400: "An id doesn't exist.", 422: INVALID}),
 )
 def reorder_categories(body: ReorderIn, db: DB) -> OkOut:
     """Categories in `ids` come first, in that order (the billing sidebar order); any not listed follow."""
@@ -159,7 +168,7 @@ def reorder_categories(body: ReorderIn, db: DB) -> OkOut:
     "/items/reorder",
     **ADMIN,
     summary="Set the order of menu items",
-    responses=errors({401: ADMIN_401, 400: "An id doesn't exist.", 422: INVALID}),
+    responses=errors({401: ADMIN_401, 403: ADMIN_403, 400: "An id doesn't exist.", 422: INVALID}),
 )
 def reorder_items(body: ReorderIn, db: DB) -> OkOut:
     """Items in `ids` are placed first, in that order. Send one category's items to reorder that category."""

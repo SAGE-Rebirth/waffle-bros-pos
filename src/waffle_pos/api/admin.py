@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from waffle_pos import __version__
-from waffle_pos.api.deps import DB, AdminOnly, bad_request
+from waffle_pos.api.deps import ADMIN_401, ADMIN_403, DB, AdminOnly, SignedIn, bad_request, errors
+from waffle_pos.integrations import sheets
 from waffle_pos.modules import registry
 from waffle_pos.modules.base import Module
 from waffle_pos.services import auth
@@ -87,15 +89,26 @@ def public_config(db: DB) -> dict[str, Any]:
 
 
 @router.post("/admin/login", summary="Sign in to the admin dashboard with the PIN")
-def login(body: LoginIn, db: DB) -> LoginOut:
-    """Returns a bearer token for the admin endpoints. The default PIN is 1234 until changed."""
+def login(body: LoginIn, db: DB, request: Request) -> LoginOut:
+    """Returns a bearer token for the admin endpoints. The default PIN is 1234 until changed, and
+    with it the token can only change the PIN. After 5 wrong PINs from one device, sign-in from it
+    is locked for 30 s, doubling with every further wrong PIN (429 with `Retry-After`); 30 wrong
+    PINs from anywhere within 10 minutes lock sign-in for everyone for a while."""
+    client = request.client.host if request.client else "?"
+    throttle: auth.LoginThrottle = request.app.state.login_throttle
+    if wait := throttle.wait_seconds(client):
+        raise bad_request(
+            f"Too many wrong PINs. Try again in {wait} seconds.", 429, headers={"Retry-After": str(wait)}
+        )
     if not auth.check_pin(db, body.pin):
+        throttle.failed(client)
         raise bad_request("Wrong PIN", 401)
+    throttle.succeeded(client)
     token, expires = auth.issue_token(db)
     return LoginOut(token=token, expires_at=expires, must_change_pin=auth.uses_default_pin(db))
 
 
-@router.post("/admin/pin", summary="Change the admin PIN", dependencies=[AdminOnly])
+@router.post("/admin/pin", summary="Change the admin PIN", dependencies=[SignedIn])
 def change_pin(body: PinIn, db: DB) -> LoginOut:
     """Sets a new 4-8 digit PIN. Other signed-in admin sessions are signed out; a fresh token is returned."""
     try:
@@ -130,6 +143,20 @@ def update_module(key: str, body: ModuleUpdate, db: DB) -> ModuleView:
     except ValueError as e:  # pydantic.ValidationError
         raise bad_request(_first_error(e)) from e
     return module_view(db, module)
+
+
+@router.get(
+    "/admin/google-sheet/script",
+    summary="The Apps Script to paste into the Google Sheet",
+    dependencies=[AdminOnly],
+    response_class=PlainTextResponse,
+    responses={200: {"content": {"text/plain": {}}}, **errors({401: ADMIN_401, 403: ADMIN_403})},
+)
+def google_sheet_script() -> str:
+    """The Google Apps Script that receives the POS sync. Paste it into the spreadsheet
+    (Extensions → Apps Script), set its SECRET to the module's secret, and deploy it as a web app;
+    the setup steps are in the comment at the top."""
+    return sheets.apps_script_source()
 
 
 def _first_error(e: ValueError) -> str:

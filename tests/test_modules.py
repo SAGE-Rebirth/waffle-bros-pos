@@ -26,8 +26,15 @@ def mod_client(tmp_path: Path) -> Iterator[TestClient]:
         yield client
 
 
-def _admin(client: TestClient, pin: str = "1234") -> dict[str, str]:
+def _login(client: TestClient, pin: str = "1234") -> dict[str, str]:
     r = client.post("/api/admin/login", json={"pin": pin})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def _admin(client: TestClient) -> dict[str, str]:
+    """Admin headers on a fresh shop: the default PIN only allows changing it, so change it first."""
+    r = client.post("/api/admin/pin", headers=_login(client), json={"new_pin": "2468"})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
@@ -121,9 +128,9 @@ def test_admin_module_listing_and_update(mod_client: TestClient) -> None:
 
     cfg = mod_client.get("/api/config").json()
     assert cfg["modules"]["gst"] == {"enabled": True, "settings": {"rate": 5.0, "gstin": ""}}
-    assert "credentials_path" not in cfg["modules"]["google_sheets"]["settings"]
+    assert "secret" not in cfg["modules"]["google_sheets"]["settings"]
     assert "admin" not in cfg["modules"]
-    assert cfg["default_pin"] is True
+    assert cfg["default_pin"] is False  # _admin() had to change it
 
 
 def test_modules_change_billing(mod_client: TestClient) -> None:
@@ -145,7 +152,8 @@ def test_modules_change_billing(mod_client: TestClient) -> None:
 
 
 def test_change_pin_via_api(mod_client: TestClient) -> None:
-    h = _admin(mod_client)
+    h = _login(mod_client)
+    assert mod_client.get("/api/admin/modules", headers=h).status_code == 403  # default PIN: change it first
     assert mod_client.post("/api/admin/pin", headers=h, json={"new_pin": "12"}).status_code == 400
     r = mod_client.post("/api/admin/pin", headers=h, json={"new_pin": "9753"})
     assert r.status_code == 200

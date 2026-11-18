@@ -10,6 +10,8 @@ from waffle_pos.db.models import Item, Order, OrderItem
 from waffle_pos.modules.builtin import DiscountSettings, GstSettings
 from waffle_pos.modules.registry import is_enabled, settings_of
 from waffle_pos.schemas import OrderCreate
+from waffle_pos.services.fmt import inr
+from waffle_pos.services.targets import money
 
 
 class OrderError(ValueError):
@@ -17,7 +19,7 @@ class OrderError(ValueError):
 
 
 def _money(x: float) -> float:
-    return round(x + 0.0, 2)
+    return money(x)
 
 
 def next_bill_no(session: Session, when: datetime) -> str:
@@ -44,6 +46,8 @@ def create_order(session: Session, data: OrderCreate, when: datetime | None = No
         item = items.get(line.item_id)
         if item is None:
             raise OrderError(f"Unknown item {line.item_id}")
+        if not item.active:
+            raise OrderError(f"{item.name} is hidden from the menu and can't be billed")
         lines.append(
             OrderItem(
                 item_id=item.id, name=item.name, category=item.category.name, price=item.price, qty=line.qty
@@ -58,7 +62,7 @@ def create_order(session: Session, data: OrderCreate, when: datetime | None = No
         max_pct = settings_of(session, "discounts", DiscountSettings).max_discount_pct
         cap = subtotal * max_pct / 100
         if data.discount > cap + 0.005:
-            raise OrderError(f"Discount can be at most {max_pct:g}% of the bill (₹{cap:,.0f})")
+            raise OrderError(f"Discount can be at most {max_pct:g}% of the bill ({inr(cap)})")
         discount = min(subtotal, data.discount)
     gst_rate = settings_of(session, "gst", GstSettings).rate if is_enabled(session, "gst") else 0.0
     tax = _money((subtotal - discount) * gst_rate / 100)

@@ -356,3 +356,9 @@ input.invalid { border-color: var(--bad); box-shadow: 0 0 0 3px rgba(179, 38, 30
 .image-field { flex-wrap: wrap; }
 .logo-preview { width: 64px; height: 64px; border-radius: 12px; border: 1px solid var(--line); }
 .logo-preview img { object-fit: contain; }
+
+.script-box { margin-top: 12px; display: grid; gap: 8px; }
+.script-box textarea { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+
+.pin-modal { width: min(360px, 100%); display: grid; gap: 10px; }
+.pin-modal input { font-size: 24px; letter-spacing: 8px; text-align: center; }

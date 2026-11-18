@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict
 class ModuleSettings(BaseModel):
     """Base class for a module's settings. Unknown keys are ignored so old data never breaks."""
 
-    model_config = ConfigDict(extra="ignore", validate_assignment=True)
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, allow_inf_nan=False)
 
 
 @dataclass(frozen=True)
