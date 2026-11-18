@@ -395,8 +395,13 @@ a single "No sales yet" tip. `_menu` uses the `targets` module's `slow_mover_pct
 
    ```python
    LOYALTY = Module(
-       "loyalty", "Loyalty points", "Points on every bill, free waffle at the end.",
-       LoyaltySettings, default_enabled=False, icon="⭐", order=12,
+       "loyalty",
+       "Loyalty points",
+       "Points on every bill, free waffle at the end.",
+       LoyaltySettings,
+       default_enabled=False,
+       icon="⭐",
+       order=12,
    )
    ```
 
