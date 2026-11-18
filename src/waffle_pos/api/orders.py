@@ -1,17 +1,36 @@
-from datetime import date
+"""Bills: create, list, look up and cancel. Money is in rupees; times are shop-local."""
 
-from fastapi import APIRouter
+from datetime import date
+from typing import Annotated
+
+from fastapi import APIRouter, Path, Query
 
 from waffle_pos import clock
-from waffle_pos.api.deps import DB, bad_request
+from waffle_pos.api.deps import DB, INVALID, bad_request, errors
 from waffle_pos.schemas import OrderCreate, OrderOut
 from waffle_pos.services import orders
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
+OrderId = Annotated[int, Path(description="The order's numeric `id` (not its `bill_no`).")]
 
-@router.post("")
+
+@router.post(
+    "",
+    summary="Bill an order",
+    responses=errors(
+        {400: "The order is empty, an `item_id` is unknown, or the discount is not allowed.", 422: INVALID}
+    ),
+)
 def create_order(body: OrderCreate, db: DB) -> OrderOut:
+    """Create a paid bill and return it with its `bill_no` (`WB<yymmdd>-<nnn>`, numbered per day).
+
+    Prices come from the menu, never from the request. Totals, in rupees:
+    `subtotal` = sum of price x qty; `discount` = rupees off before GST (capped at the
+    subtotal); `tax` = (subtotal - discount) x GST rate / 100 (`gst_rate` setting, 0 by default);
+    `total` = subtotal - discount + tax. `created_at` is the shop-local
+    time now (`YYYY-MM-DD HH:MM:SS`). The bill is queued for the next Google Sheet sync.
+    """
     try:
         order = orders.create_order(db, body)
     except orders.OrderError as e:
@@ -19,21 +38,39 @@ def create_order(body: OrderCreate, db: DB) -> OrderOut:
     return OrderOut.model_validate(order)
 
 
-@router.get("")
-def list_orders(db: DB, date: date | None = None) -> list[OrderOut]:
+@router.get("", summary="List one day's bills", responses=errors({422: INVALID}))
+def list_orders(
+    db: DB,
+    date: Annotated[
+        date | None, Query(description="Shop-local day, `YYYY-MM-DD`. Defaults to today.")
+    ] = None,
+) -> list[OrderOut]:
+    """Every bill created on that day, newest first, including cancelled ones (`status: cancelled`)."""
     return [OrderOut.model_validate(o) for o in orders.list_orders(db, date or clock.today())]
 
 
-@router.get("/{order_id}")
-def get_order(order_id: int, db: DB) -> OrderOut:
+@router.get(
+    "/{order_id}", summary="Get one bill", responses=errors({404: "No order with that id.", 422: INVALID})
+)
+def get_order(order_id: OrderId, db: DB) -> OrderOut:
+    """One bill with its line items, for reprinting or checking."""
     order = orders.get_order(db, order_id)
     if order is None:
         raise bad_request("Not found", 404)
     return OrderOut.model_validate(order)
 
 
-@router.post("/{order_id}/cancel")
-def cancel_order(order_id: int, db: DB) -> OrderOut:
+@router.post(
+    "/{order_id}/cancel",
+    summary="Cancel a bill",
+    responses=errors({404: "No order with that id.", 422: INVALID}),
+)
+def cancel_order(order_id: OrderId, db: DB) -> OrderOut:
+    """Mark a bill `cancelled` and return it. The bill is kept (bills are history) but no longer
+    counts towards revenue, targets or item stats; the day-end sheet lists it under `cancelled`.
+    The next Google Sheet sync appends the bill again with status `cancelled` (the earlier row is
+    left as it was). Cancelling twice is harmless.
+    """
     order = orders.cancel_order(db, order_id)
     if order is None:
         raise bad_request("Not found", 404)

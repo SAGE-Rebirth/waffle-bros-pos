@@ -214,3 +214,7 @@ def test_serves_built_frontend(tmp_path: Path) -> None:
         assert client.get("/favicon.svg").text == "<svg/>"
         assert client.get("/../pyproject.toml").text == "<div id=root></div>"
         assert client.get("/api/menu").status_code == 200
+
+
+def test_health(api_client: TestClient) -> None:
+    assert api_client.get("/api/health").json()["status"] == "ok"

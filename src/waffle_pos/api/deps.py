@@ -1,10 +1,12 @@
 """FastAPI dependencies."""
 
 from collections.abc import Iterator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session, sessionmaker
+
+from waffle_pos.schemas import ErrorOut
 
 
 def get_session_factory(request: Request) -> sessionmaker[Session]:
@@ -31,3 +33,11 @@ SessionFactory = Annotated[sessionmaker[Session], Depends(get_session_factory)]
 
 def bad_request(message: str, status: int = 400) -> HTTPException:
     return HTTPException(status_code=status, detail=message)
+
+
+def errors(described: dict[int, str]) -> dict[int | str, dict[str, Any]]:
+    """OpenAPI ``responses=`` for the ``{"error": "..."}`` bodies a route can return, keyed by status."""
+    return {code: {"model": ErrorOut, "description": text} for code, text in described.items()}
+
+
+INVALID = "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."

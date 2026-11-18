@@ -21,6 +21,12 @@ class ORM(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ErrorOut(BaseModel):
+    """Every failed request answers with this body (400, 404, 422, 501)."""
+
+    error: str = Field(description="A message that is safe to show to the cashier as-is.")
+
+
 # ---------- Menu ----------
 class CategoryOut(ORM):
     id: int
@@ -29,7 +35,7 @@ class CategoryOut(ORM):
 
 
 class CategoryIn(BaseModel):
-    name: str = Field(min_length=1, max_length=60)
+    name: str = Field(min_length=1, max_length=60, description="Category name, e.g. `Shakes`.")
 
     @field_validator("name")
     @classmethod
@@ -41,14 +47,16 @@ class CategoryIn(BaseModel):
 
 
 class ItemIn(BaseModel):
-    code: str = Field(min_length=1, max_length=12)
+    code: str = Field(
+        min_length=1, max_length=12, description="Short unique item ID shown on the till, e.g. `W01`."
+    )
     name: str = Field(min_length=1, max_length=120)
-    category_id: int
-    price: float = Field(ge=0)
-    cost: float = Field(default=0, ge=0)
-    image: str | None = None
+    category_id: int = Field(description="`id` of an existing category (see `GET /api/menu`).")
+    price: float = Field(ge=0, description="Selling price in rupees, before GST.")
+    cost: float = Field(default=0, ge=0, description="Cost to make, in rupees (for margins; 0 = unknown).")
+    image: str | None = Field(default=None, description="Optional image URL.")
     veg: bool = True
-    active: bool = True
+    active: bool = Field(default=True, description="False hides the item from the billing screen.")
 
     @field_validator("code")
     @classmethod
@@ -94,13 +102,13 @@ class DeleteItemOut(OkOut):
 
 # ---------- Orders ----------
 class OrderLineIn(BaseModel):
-    item_id: int
+    item_id: int = Field(description="Menu item `id`.")
     qty: int = Field(default=1, ge=1, le=999)
 
 
 class OrderCreate(BaseModel):
-    items: list[OrderLineIn]
-    discount: float = Field(default=0, ge=0)
+    items: list[OrderLineIn] = Field(description="At least one line; prices come from the menu.")
+    discount: float = Field(default=0, ge=0, description="Rupees off the subtotal, before GST.")
     payment_method: PaymentMethod = "cash"
     order_type: OrderType = "dine-in"
     source: OrderSource = "counter"
@@ -140,16 +148,18 @@ class OrderOut(ORM):
 
 # ---------- Targets & expenses ----------
 class TargetIn(BaseModel):
-    amount: float = Field(gt=0)
-    makeDefault: bool = False  # noqa: N815 - matches the front end's JSON
+    amount: float = Field(gt=0, description="Revenue target for the month, in rupees.")
+    makeDefault: bool = Field(  # noqa: N815 - matches the front end's JSON
+        default=False, description="Also use this amount for months without their own target."
+    )
 
 
 class ExpenseIn(BaseModel):
-    category: str = Field(min_length=1, max_length=30)
-    amount: float = Field(gt=0)
-    date: dt.date | None = None
+    category: str = Field(min_length=1, max_length=30, description="e.g. `rent`; stored lower-case.")
+    amount: float = Field(gt=0, description="Rupees.")
+    date: dt.date | None = Field(default=None, description="`YYYY-MM-DD`; defaults to today.")
     note: str | None = None
-    recurring: bool = False
+    recurring: bool = Field(default=False, description="True for a monthly cost (counts every month).")
 
     @field_validator("category")
     @classmethod

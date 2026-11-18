@@ -30,7 +30,27 @@ The maths lives in `src/waffle_pos/services/targets.py` as pure functions with u
 - **Expenses** = one-off expenses dated this month + every monthly expense (rent, salary) added in or before this month. **Break-even/day** = monthly expenses ÷ days in the month.
 - **Best seller** = most revenue. **Most popular** = most units sold. **Customer favourite** = appears in the most separate bills.
 
-## Running it
+## Running it with Docker (recommended)
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) on the shop computer, then from this folder:
+
+```bash
+docker compose up -d --build     # first time, and after every update (git pull)
+```
+
+The POS is at http://localhost:4000 (and on tablets via the computer's Wi-Fi address). It restarts by itself after a reboot. Useful commands:
+
+```bash
+docker compose logs -f           # see what it's doing
+docker compose down              # stop it (your data stays)
+docker compose pull && docker compose up -d --build   # update after a git pull
+```
+
+- **Data** lives in the Docker volume `pos-data` (`/data/waffle-bros.db` inside the container) and survives rebuilds and updates. Download a copy any time from **Settings → Backup**.
+- **Google Sheet key:** put the service-account JSON in `./secrets/`, then enter `/secrets/<file>.json` as the key path in **Settings → Google Sheet**.
+- **Time zone:** `WB_TIMEZONE` in `compose.yaml` (default Asia/Kolkata).
+
+## Running it without Docker
 
 You need **[uv](https://docs.astral.sh/uv/)** (it installs the right Python by itself) and, to build the screens once, **Node.js 22**.
 
@@ -53,11 +73,13 @@ Settings for the server process come from environment variables or a `.env` file
 ### Try it with sample data
 
 ```bash
-uv run python -m waffle_pos.demo                 # ~6 weeks of made-up sales in data-demo/ (your real data/ is untouched)
+uv run python -m waffle_pos.demo                 # ~6 weeks of made-up sales in data-demo/ (WB_DEMO_DIR to change; real data is never touched)
 WB_DATA_DIR=data-demo uv run waffle-pos          # Windows: set WB_DATA_DIR=data-demo && uv run waffle-pos
 ```
 
 ## Development
+
+See `CLAUDE.md` for architecture and conventions, and `docs/API.md` for the full API reference (also live at http://localhost:4000/docs).
 
 ```bash
 uv sync                       # dev tools included
