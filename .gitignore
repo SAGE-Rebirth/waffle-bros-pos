@@ -1,0 +1,10 @@
+node_modules/
+client/dist/
+data/
+data-demo/
+*.db
+*.db-wal
+*.db-shm
+*.json.key
+google-key*.json
+.DS_Store
