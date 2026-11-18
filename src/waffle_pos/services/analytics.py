@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from waffle_pos import clock
 from waffle_pos.db.models import Category, Expense, Item, Order, OrderItem, Target
-from waffle_pos.services.settings import get_float, get_settings
+from waffle_pos.modules.builtin import ShopSettings, TargetSettings
+from waffle_pos.modules.registry import settings_of
 from waffle_pos.services.targets import TargetInput, compute, money
 
 PERIODS = ("today", "week", "month", "30d", "all")
@@ -56,7 +57,7 @@ def get_target(session: Session, month: str) -> float:
     row = session.get(Target, month)
     if row is not None:
         return float(row.amount)
-    return get_float(get_settings(session), "default_target")
+    return settings_of(session, "targets", TargetSettings).default_target
 
 
 def _expense_dict(e: Expense) -> dict[str, Any]:
@@ -195,9 +196,8 @@ def _hourly(session: Session, today: date) -> list[dict[str, Any]]:
         )
         or 0
     )
-    settings = get_settings(session)
-    open_h = int(get_float(settings, "open_hour"))
-    close_h = int(get_float(settings, "close_hour"))
+    shop = settings_of(session, "shop", ShopSettings)
+    open_h, close_h = shop.open_hour, shop.close_hour
     first = min([open_h, *today_hours])
     last = max([close_h, *today_hours])
     out: list[dict[str, Any]] = []
@@ -256,7 +256,7 @@ def _weekly(session: Session, today: date) -> list[dict[str, Any]]:
     return out
 
 
-def _monthly(session: Session, today: date) -> list[dict[str, Any]]:
+def monthly_summary(session: Session, today: date) -> list[dict[str, Any]]:
     """The last 12 months with their targets and expenses."""
     out: list[dict[str, Any]] = []
     for i in range(11, -1, -1):
@@ -323,7 +323,7 @@ def charts(session: Session, now: datetime) -> dict[str, Any]:
         "hourly": _hourly(session, today),
         "daily": _daily(session, today, target),
         "weekly": _weekly(session, today),
-        "monthly": _monthly(session, today),
+        "monthly": monthly_summary(session, today),
         "categorySplit": category_split,
         "paymentSplit": payment_split,
         "weekday": _weekday(session, today),

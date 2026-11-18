@@ -77,9 +77,23 @@ def js_round(x: float) -> int:
     return math.floor(x + 0.5)
 
 
+MARKER = ".waffle-demo"
+
+
 def demo_data_dir() -> Path:
-    env = os.environ.get("WB_DATA_DIR")
+    """Where demo data goes: ``WB_DEMO_DIR`` if set, else ``data-demo/`` in the project.
+
+    Deliberately NOT ``WB_DATA_DIR``: inside Docker that points at the real shop data.
+    """
+    env = os.environ.get("WB_DEMO_DIR")
     return Path(env).resolve() if env else DEFAULT_DEMO_DIR
+
+
+def safe_to_wipe(data_dir: Path) -> bool:
+    """Only wipe a folder that is missing, empty, or was created by this script (has the marker)."""
+    if not data_dir.exists():
+        return True
+    return (data_dir / MARKER).exists() or not any(data_dir.iterdir())
 
 
 def _orders_for_day(day: date) -> int:
@@ -152,11 +166,13 @@ def generate_expenses(session: Session, rand: Lcg, start: date, today: date) -> 
 
 def main() -> None:
     data_dir = demo_data_dir()
-    if data_dir.resolve() == REAL_DATA_DIR.resolve():
+    if data_dir.resolve() == REAL_DATA_DIR.resolve() or not safe_to_wipe(data_dir):
         sys.exit(
-            f"Refusing to wipe {data_dir}: that is the real shop data. Point WB_DATA_DIR somewhere else."
+            f"Refusing to wipe {data_dir}: not a demo folder. Set WB_DEMO_DIR to an empty or demo folder."
         )
     shutil.rmtree(data_dir, ignore_errors=True)
+    data_dir.mkdir(parents=True)
+    (data_dir / MARKER).write_text("Created by `python -m waffle_pos.demo`; safe to delete.\n")
 
     engine = make_engine(AppConfig(data_dir=data_dir, start_sync_loop=False))
     try:

@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from waffle_pos import __version__
-from waffle_pos.api import dashboard, finance, menu, orders, system
+from waffle_pos.api import admin, dashboard, finance, menu, orders, system
 from waffle_pos.config import AppConfig, get_config
 from waffle_pos.db.migrate import upgrade_to_head
 from waffle_pos.db.seed import seed_if_empty
@@ -42,7 +42,39 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 await task
         engine.dispose()
 
-    app = FastAPI(title="Waffle Bros POS", version=__version__, lifespan=lifespan)
+    app = FastAPI(
+        title="Waffle Bros POS",
+        version=__version__,
+        lifespan=lifespan,
+        description=(
+            "Point-of-sale and revenue-target API for the Waffle Bros shop in Bhopal. "
+            "The React screens use exactly this API, so a script can do anything the cashier can.\n\n"
+            "- **Base URL:** `http://localhost:4000` (or the shop computer's address on the Wi-Fi).\n"
+            "- **Money:** rupees, as JSON numbers (`199.0` is Rs 199).\n"
+            "- **Times:** shop-local (Asia/Kolkata by default); timestamps are `YYYY-MM-DD HH:MM:SS`, "
+            "dates `YYYY-MM-DD`, months `YYYY-MM`.\n"
+            '- **Errors:** JSON `{"error": "..."}` with status 400 (bad request), 404 (not found), '
+            "422 (validation, `field: reason`) or 501 (not built yet).\n"
+            "- **Auth:** reading and billing are open on the shop network. Menu changes, module settings "
+            "and backups need the admin PIN: `POST /api/admin/login` returns a token to send as "
+            "`Authorization: Bearer <token>`.\n\n"
+            "Practical guide with real examples: `docs/API.md` in the repository."
+        ),
+        openapi_tags=[
+            {"name": "menu", "description": "Categories and items: what can be billed, at what price."},
+            {"name": "orders", "description": "Bills: create, list by day, look up and cancel."},
+            {
+                "name": "dashboard",
+                "description": "Read-only numbers: target progress, charts, tips, day-end.",
+            },
+            {"name": "finance", "description": "Monthly revenue targets and expenses."},
+            {"name": "system", "description": "Health, Google Sheet sync, backup, webhooks."},
+            {
+                "name": "admin",
+                "description": "PIN sign-in, feature modules and their settings, and the POS config.",
+            },
+        ],
+    )
     app.state.config = config
     app.state.session_factory = factory
 
@@ -59,7 +91,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         msg = str(first.get("msg", "Invalid request")).removeprefix("Value error, ")
         return JSONResponse({"error": f"{field}: {msg}" if field else msg}, status_code=422)
 
-    for module in (menu, orders, dashboard, finance, system):
+    for module in (menu, orders, dashboard, finance, system, admin):
         app.include_router(module.router)
 
     dist = config.frontend_dist

@@ -9,6 +9,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from waffle_pos.modules.builtin import TargetSettings
+from waffle_pos.modules.registry import settings_of
 from waffle_pos.services.analytics import charts, item_stats, target_summary
 from waffle_pos.services.fmt import inr, num
 from waffle_pos.services.targets import js_round
@@ -41,7 +43,7 @@ def insights(session: Session, now: datetime) -> list[dict[str, str]]:
     _expenses(t, add)
     _hours(c["hourly"], add)
     _weekdays(c["weekday"], add)
-    _menu(it, add)
+    _menu(it, add, settings_of(session, "targets", TargetSettings))
     return out
 
 
@@ -168,7 +170,7 @@ def _weekdays(weekday: list[dict[str, Any]], add: Add) -> None:
         )
 
 
-def _menu(it: dict[str, Any], add: Add) -> None:
+def _menu(it: dict[str, Any], add: Add, cfg: TargetSettings) -> None:
     best = it["bestSeller"]
     if best:
         add(
@@ -178,7 +180,7 @@ def _menu(it: dict[str, Any], add: Add) -> None:
             f"({num(best['share'])}% of item sales). Keep it front and centre on the menu board.",
         )
     popular_qty = it["mostPopular"]["qty"] if it["mostPopular"] else 0
-    dead = [s for s in it["slowMovers"] if s["qty"] <= max(2, popular_qty * 0.05)]
+    dead = [s for s in it["slowMovers"] if s["qty"] <= max(2, popular_qty * cfg.slow_mover_pct / 100)]
     if dead:
         names = ", ".join(f"{d['name']} ({d['qty']})" for d in dead)
         add(
@@ -188,7 +190,11 @@ def _menu(it: dict[str, Any], add: Add) -> None:
             "or renaming them.",
         )
     thin = sorted(
-        (i for i in it["items"] if i["qty"] > 0 and i["margin"] is not None and i["margin"] < 55),
+        (
+            i
+            for i in it["items"]
+            if i["qty"] > 0 and i["margin"] is not None and i["margin"] < cfg.low_margin_pct
+        ),
         key=lambda i: -i["qty"],
     )
     if thin:

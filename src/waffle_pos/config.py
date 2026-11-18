@@ -1,7 +1,7 @@
 """Process configuration, read from environment variables (prefix ``WB_``) or a ``.env`` file.
 
 Shop-level settings that the owner edits in the app (GST, target, Google Sheet) live in the
-database instead; see :mod:`waffle_pos.services.settings`.
+database as feature-module settings; see :mod:`waffle_pos.modules`.
 """
 
 from functools import lru_cache
@@ -20,7 +20,7 @@ class AppConfig(BaseSettings):
     port: int = 4000
     timezone: str = "Asia/Kolkata"
     frontend_dist: Path = PROJECT_ROOT / "frontend" / "dist"
-    sync_interval_seconds: int = 300
+    sync_interval_seconds: int | None = None  # None: use the Google Sheet module's interval_minutes
     start_sync_loop: bool = True
 
     @property

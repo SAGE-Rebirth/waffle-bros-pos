@@ -17,7 +17,16 @@ _Screenshots use the sample data from `uv run python -m waffle_pos.demo`._
 | **Billing** | Category menu (Waffle, Sandwich, Combo, Mini Waffle), item cards with photo, name, price and ID, live bill on the right with the order amount. Dine-in / takeaway / delivery, UPI / cash / card, discount, optional customer, Save or Save & Print (80 mm thermal bill). Today's progress is always visible in the top bar. |
 | **Dashboard** | Target ring (month progress vs an even pace), today's goal bar, amount needed per day from tomorrow, projected month end, expenses, net profit. Sales charts (hourly vs an average day, daily with target line, running total vs target pace, weekly, monthly vs target). Best seller, most popular, customer favourite, every item's sales and margin. Expense entry (one-off or monthly). Plain-language insights. |
 | **Day End** | Any day's sales, orders, average bill, cash/UPI/card split, items sold, items that didn't sell, every bill (with cancel). |
-| **Settings** | Menu editor (add/edit items and photos, prices, ingredient cost for margins, hide items), shop details and GST, Google Sheet sync, backup download. |
+| **Admin** | Behind a PIN (open it from the top bar, or go to `#admin`). **Menu**: add, edit, rename, reorder and hide categories and items, photos, prices, ingredient cost for margins. **Modules**: switch features on or off and change their settings (shop details, colours, billing options, targets, GST, discounts, Google Sheet sync). **Security**: change the PIN. **Backup**: download the database. |
+
+## Admin dashboard
+
+Menu changes, settings and backups are behind an admin PIN, so staff at the counter can bill but can't change prices. Billing, the dashboard and day-end stay open.
+
+- The PIN is **1234** on a new install. Sign in with it once and the dashboard asks you to choose your own (4 to 8 digits). Do this on the first day.
+- Changing the PIN signs everyone out of the admin dashboard, on every device.
+- Sign-in lasts 12 hours on that device.
+- Features are **modules** you switch on or off under **Admin → Modules**: GST (off until you switch it on), discounts (on, at most 20% of a bill by default), Google Sheet sync (off), and WhatsApp orders (phase 2). Shop details, colours, billing options and targets are always on.
 
 ## How the target maths works
 
@@ -30,7 +39,27 @@ The maths lives in `src/waffle_pos/services/targets.py` as pure functions with u
 - **Expenses** = one-off expenses dated this month + every monthly expense (rent, salary) added in or before this month. **Break-even/day** = monthly expenses ÷ days in the month.
 - **Best seller** = most revenue. **Most popular** = most units sold. **Customer favourite** = appears in the most separate bills.
 
-## Running it
+## Running it with Docker (recommended)
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) on the shop computer, then from this folder:
+
+```bash
+docker compose up -d --build     # first time, and after every update (git pull)
+```
+
+The POS is at http://localhost:4000 (and on tablets via the computer's Wi-Fi address). It restarts by itself after a reboot. Useful commands:
+
+```bash
+docker compose logs -f           # see what it's doing
+docker compose down              # stop it (your data stays)
+docker compose pull && docker compose up -d --build   # update after a git pull
+```
+
+- **Data** lives in the Docker volume `pos-data` (`/data/waffle-bros.db` inside the container) and survives rebuilds and updates. Download a copy any time from **Admin → Backup**.
+- **Google Sheet key:** put the service-account JSON in `./secrets/`, then enter `/secrets/<file>.json` as the key path in **Admin → Modules → Google Sheet sync** (see [Google Sheet sync](#google-sheet-sync)).
+- **Time zone:** `WB_TIMEZONE` in `compose.yaml` (default Asia/Kolkata).
+
+## Running it without Docker
 
 You need **[uv](https://docs.astral.sh/uv/)** (it installs the right Python by itself) and, to build the screens once, **Node.js 22**.
 
@@ -53,11 +82,13 @@ Settings for the server process come from environment variables or a `.env` file
 ### Try it with sample data
 
 ```bash
-uv run python -m waffle_pos.demo                 # ~6 weeks of made-up sales in data-demo/ (your real data/ is untouched)
+uv run python -m waffle_pos.demo                 # ~6 weeks of made-up sales in data-demo/ (WB_DEMO_DIR to change; real data is never touched)
 WB_DATA_DIR=data-demo uv run waffle-pos          # Windows: set WB_DATA_DIR=data-demo && uv run waffle-pos
 ```
 
 ## Development
+
+See `CLAUDE.md` for architecture and conventions, and `docs/API.md` for the full API reference (also live at http://localhost:4000/docs).
 
 ```bash
 uv sync                       # dev tools included
@@ -75,13 +106,37 @@ CI (GitHub Actions) runs the same checks plus the front-end build on every pull 
 
 ## Google Sheet sync
 
-Every 5 minutes, when the computer is online, new bills, items sold and expenses are appended to a Google Sheet and a **Daily** summary tab is refreshed. Billing never waits for the internet; unsynced rows catch up later. Setup steps are in **Settings → Google Sheet** (a service account key plus sharing the sheet with it). **Sync now** on that screen runs it immediately.
+When it's switched on, the POS copies your bills, items sold and expenses to a Google Sheet every few minutes while the computer is online, so you can look at the numbers from anywhere. Billing never waits for the internet; anything not yet copied catches up later.
 
-Tabs created: `Orders`, `OrderItems`, `Expenses`, `Daily`.
+### Setting it up (once)
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a project (any name), then **enable the Google Sheets API** for it.
+2. Under **IAM & Admin → Service accounts**, create a service account. Open it, go to **Keys → Add key → Create new key → JSON**, and save the downloaded file. Keep this file private: it works like a password.
+3. Note the service account's email address (it ends in `.iam.gserviceaccount.com`).
+4. Create a Google Sheet (or use an existing one) and **Share** it with that email address as **Editor**.
+5. Put the key file on the POS computer:
+   - **Docker:** copy it into the `secrets/` folder next to `compose.yaml`. Its path for the POS is `/secrets/<file>.json`.
+   - **Without Docker:** anywhere on the computer; use its full path.
+6. In the POS, open **Admin → Modules → Google Sheet sync**. Paste the **spreadsheet ID** (the long code in the sheet's address between `/d/` and `/edit`) and the **key file path**, switch the module on, save, and press **Sync now**.
+
+If something is wrong, Sync now says what (for example a wrong path, or the sheet not shared with the service account).
+
+### What it writes
+
+| Tab | How | What's in it |
+| --- | --- | --- |
+| `Orders` | New rows added | One row per bill. A cancelled bill is added again with status `cancelled`. |
+| `OrderItems` | New rows added | One row per item on each bill. |
+| `Expenses` | New rows added | Every expense you enter. |
+| `Daily` | Rewritten each sync | Last 90 days: revenue, orders, average bill, top item. |
+| `Items` | Rewritten each sync | Every menu item with its last 30 days: units, bills, revenue, share of sales and margin. |
+| `Monthly` | Rewritten each sync | Last 12 months: target, revenue, orders, average bill, % of target, expenses, net profit. |
+
+The POS creates any of these tabs that are missing and never touches other tabs, so you can add your own, such as an **Overview** tab with KPI formulas and charts built on the tabs above.
 
 ## Backups
 
-All data lives in `data/waffle-bros.db` (SQLite). **Settings → Backup** downloads a consistent copy, even while the shop is billing.
+All data lives in `data/waffle-bros.db` (SQLite). **Admin → Backup** downloads a consistent copy, even while the shop is billing.
 
 ## Project layout
 
@@ -92,8 +147,9 @@ src/waffle_pos/
   config.py         process settings (WB_* env vars)
   clock.py          shop-local time helpers
   schemas.py        Pydantic request/response models
-  api/              thin routers: menu, orders, dashboard, finance, system
-  services/         business logic: orders, menu, settings, targets (pure maths), analytics, insights
+  api/              thin routers: menu, orders, dashboard, finance, system, admin
+  modules/          switchable features (shop, theme, billing, targets, GST, discounts, Sheets, WhatsApp) and their settings
+  services/         business logic: orders, menu, auth (admin PIN), targets (pure maths), analytics, insights
   db/               SQLAlchemy models, session, migrations runner, starter menu
   migrations/       Alembic
   integrations/     Google Sheets sync

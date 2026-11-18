@@ -1,0 +1,2680 @@
+{
+  "components": {
+    "schemas": {
+      "CategoryAmount": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "number"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "amount"
+        ],
+        "title": "CategoryAmount",
+        "type": "object"
+      },
+      "CategoryIn": {
+        "properties": {
+          "name": {
+            "description": "Category name, e.g. `Shakes`.",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CategoryIn",
+        "type": "object"
+      },
+      "CategoryOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sort": {
+            "title": "Sort",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "sort"
+        ],
+        "title": "CategoryOut",
+        "type": "object"
+      },
+      "DeleteItemOut": {
+        "properties": {
+          "hidden": {
+            "title": "Hidden",
+            "type": "boolean"
+          },
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "hidden"
+        ],
+        "title": "DeleteItemOut",
+        "type": "object"
+      },
+      "ErrorOut": {
+        "description": "Every failed request answers with this body (400, 404, 422, 501).",
+        "properties": {
+          "error": {
+            "description": "A message that is safe to show to the cashier as-is.",
+            "title": "Error",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorOut",
+        "type": "object"
+      },
+      "ExpenseIn": {
+        "properties": {
+          "amount": {
+            "description": "Rupees.",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount",
+            "type": "number"
+          },
+          "category": {
+            "description": "e.g. `rent`; stored lower-case.",
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Category",
+            "type": "string"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`YYYY-MM-DD`; defaults to today.",
+            "title": "Date"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "recurring": {
+            "default": false,
+            "description": "True for a monthly cost (counts every month).",
+            "title": "Recurring",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "category",
+          "amount"
+        ],
+        "title": "ExpenseIn",
+        "type": "object"
+      },
+      "ExpenseOut": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "number"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "recurring": {
+            "title": "Recurring",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "date",
+          "category",
+          "amount",
+          "note",
+          "recurring"
+        ],
+        "title": "ExpenseOut",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "IdOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "IdOut",
+        "type": "object"
+      },
+      "ItemIn": {
+        "properties": {
+          "active": {
+            "default": true,
+            "description": "False hides the item from the billing screen.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "category_id": {
+            "description": "`id` of an existing category (see `GET /api/menu`).",
+            "title": "Category Id",
+            "type": "integer"
+          },
+          "code": {
+            "description": "Short unique item ID shown on the till, e.g. `W01`.",
+            "maxLength": 12,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "cost": {
+            "default": 0,
+            "description": "Cost to make, in rupees (for margins; 0 = unknown).",
+            "minimum": 0.0,
+            "title": "Cost",
+            "type": "number"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional image URL.",
+            "title": "Image"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "description": "Selling price in rupees, before GST.",
+            "minimum": 0.0,
+            "title": "Price",
+            "type": "number"
+          },
+          "veg": {
+            "default": true,
+            "title": "Veg",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "category_id",
+          "price"
+        ],
+        "title": "ItemIn",
+        "type": "object"
+      },
+      "ItemOut": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "category_id": {
+            "title": "Category Id",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "cost": {
+            "title": "Cost",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "sort": {
+            "title": "Sort",
+            "type": "integer"
+          },
+          "veg": {
+            "title": "Veg",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "category_id",
+          "category",
+          "price",
+          "cost",
+          "image",
+          "veg",
+          "active",
+          "sort"
+        ],
+        "title": "ItemOut",
+        "type": "object"
+      },
+      "LoginIn": {
+        "properties": {
+          "pin": {
+            "maxLength": 8,
+            "minLength": 1,
+            "title": "Pin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pin"
+        ],
+        "title": "LoginIn",
+        "type": "object"
+      },
+      "LoginOut": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "must_change_pin": {
+            "title": "Must Change Pin",
+            "type": "boolean"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at",
+          "must_change_pin"
+        ],
+        "title": "LoginOut",
+        "type": "object"
+      },
+      "MenuOut": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryOut"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "categories",
+          "items"
+        ],
+        "title": "MenuOut",
+        "type": "object"
+      },
+      "ModuleUpdate": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settings"
+          }
+        },
+        "title": "ModuleUpdate",
+        "type": "object"
+      },
+      "ModuleView": {
+        "properties": {
+          "core": {
+            "title": "Core",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "readonly_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Readonly Fields",
+            "type": "array"
+          },
+          "settings_schema": {
+            "additionalProperties": true,
+            "title": "Settings Schema",
+            "type": "object"
+          },
+          "values": {
+            "additionalProperties": true,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "description",
+          "icon",
+          "core",
+          "enabled",
+          "settings_schema",
+          "values",
+          "readonly_fields"
+        ],
+        "title": "ModuleView",
+        "type": "object"
+      },
+      "MonthExpensesOut": {
+        "properties": {
+          "byCategory": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryAmount"
+            },
+            "title": "Bycategory",
+            "type": "array"
+          },
+          "oneOff": {
+            "items": {
+              "$ref": "#/components/schemas/ExpenseOut"
+            },
+            "title": "Oneoff",
+            "type": "array"
+          },
+          "oneOffTotal": {
+            "title": "Oneofftotal",
+            "type": "number"
+          },
+          "recurring": {
+            "items": {
+              "$ref": "#/components/schemas/ExpenseOut"
+            },
+            "title": "Recurring",
+            "type": "array"
+          },
+          "recurringTotal": {
+            "title": "Recurringtotal",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          }
+        },
+        "required": [
+          "total",
+          "recurringTotal",
+          "oneOffTotal",
+          "byCategory",
+          "recurring",
+          "oneOff"
+        ],
+        "title": "MonthExpensesOut",
+        "type": "object"
+      },
+      "OkOut": {
+        "properties": {
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "title": "OkOut",
+        "type": "object"
+      },
+      "OrderCreate": {
+        "properties": {
+          "customer_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "customer_phone": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Phone"
+          },
+          "delivery_address": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Address"
+          },
+          "discount": {
+            "default": 0,
+            "description": "Rupees off the subtotal, before GST.",
+            "minimum": 0.0,
+            "title": "Discount",
+            "type": "number"
+          },
+          "items": {
+            "description": "At least one line; prices come from the menu.",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineIn"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "order_type": {
+            "default": "dine-in",
+            "enum": [
+              "dine-in",
+              "takeaway",
+              "delivery"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "payment_method": {
+            "default": "cash",
+            "enum": [
+              "cash",
+              "upi",
+              "card"
+            ],
+            "title": "Payment Method",
+            "type": "string"
+          },
+          "source": {
+            "default": "counter",
+            "enum": [
+              "counter",
+              "whatsapp"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "OrderCreate",
+        "type": "object"
+      },
+      "OrderItemOut": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "item_id",
+          "name",
+          "category",
+          "price",
+          "qty"
+        ],
+        "title": "OrderItemOut",
+        "type": "object"
+      },
+      "OrderLineIn": {
+        "properties": {
+          "item_id": {
+            "description": "Menu item `id`.",
+            "title": "Item Id",
+            "type": "integer"
+          },
+          "qty": {
+            "default": 1,
+            "maximum": 999.0,
+            "minimum": 1.0,
+            "title": "Qty",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "item_id"
+        ],
+        "title": "OrderLineIn",
+        "type": "object"
+      },
+      "OrderOut": {
+        "properties": {
+          "bill_no": {
+            "title": "Bill No",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "customer_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Phone"
+          },
+          "delivery_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Address"
+          },
+          "discount": {
+            "title": "Discount",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "order_type": {
+            "title": "Order Type",
+            "type": "string"
+          },
+          "payment_method": {
+            "title": "Payment Method",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subtotal": {
+            "title": "Subtotal",
+            "type": "number"
+          },
+          "tax": {
+            "title": "Tax",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "bill_no",
+          "created_at",
+          "subtotal",
+          "discount",
+          "tax",
+          "total",
+          "payment_method",
+          "order_type",
+          "source",
+          "customer_name",
+          "customer_phone",
+          "delivery_address",
+          "status",
+          "note",
+          "items"
+        ],
+        "title": "OrderOut",
+        "type": "object"
+      },
+      "PinIn": {
+        "properties": {
+          "new_pin": {
+            "title": "New Pin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "new_pin"
+        ],
+        "title": "PinIn",
+        "type": "object"
+      },
+      "ReorderIn": {
+        "properties": {
+          "ids": {
+            "description": "Ids in the new display order.",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "ReorderIn",
+        "type": "object"
+      },
+      "SyncResult": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "skipped": {
+            "default": false,
+            "title": "Skipped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "message"
+        ],
+        "title": "SyncResult",
+        "type": "object"
+      },
+      "TargetIn": {
+        "properties": {
+          "amount": {
+            "description": "Revenue target for the month, in rupees.",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount",
+            "type": "number"
+          },
+          "makeDefault": {
+            "default": false,
+            "description": "Also use this amount for months without their own target.",
+            "title": "Makedefault",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "TargetIn",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Point-of-sale and revenue-target API for the Waffle Bros shop in Bhopal. The React screens use exactly this API, so a script can do anything the cashier can.\n\n- **Base URL:** `http://localhost:4000` (or the shop computer's address on the Wi-Fi).\n- **Money:** rupees, as JSON numbers (`199.0` is Rs 199).\n- **Times:** shop-local (Asia/Kolkata by default); timestamps are `YYYY-MM-DD HH:MM:SS`, dates `YYYY-MM-DD`, months `YYYY-MM`.\n- **Errors:** JSON `{\"error\": \"...\"}` with status 400 (bad request), 404 (not found), 422 (validation, `field: reason`) or 501 (not built yet).\n- **Auth:** reading and billing are open on the shop network. Menu changes, module settings and backups need the admin PIN: `POST /api/admin/login` returns a token to send as `Authorization: Bearer <token>`.\n\nPractical guide with real examples: `docs/API.md` in the repository.",
+    "title": "Waffle Bros POS",
+    "version": "0.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/admin/login": {
+      "post": {
+        "description": "Returns a bearer token for the admin endpoints. The default PIN is 1234 until changed.",
+        "operationId": "login_api_admin_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign in to the admin dashboard with the PIN",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/modules": {
+      "get": {
+        "description": "Each module with its JSON Schema (used to draw the form), current values and on/off state.",
+        "operationId": "list_modules_api_admin_modules_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModuleView"
+                  },
+                  "title": "Response List Modules Api Admin Modules Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List feature modules with settings forms",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/modules/{key}": {
+      "put": {
+        "description": "Partial update: only the settings keys you send change. Core modules can't be switched off.",
+        "operationId": "update_module_api_admin_modules__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Switch a module on/off or change its settings",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/pin": {
+      "post": {
+        "description": "Sets a new 4-8 digit PIN. Other signed-in admin sessions are signed out; a fresh token is returned.",
+        "operationId": "change_pin_api_admin_pin_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change the admin PIN",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/backup": {
+      "get": {
+        "description": "A consistent copy of the live database, made with SQLite's online backup API, downloaded as\n`waffle-bros-backup-YYYY-MM-DD.db`. Safe while the shop is billing. To restore, stop the POS\nand put the file in place of `waffle-bros.db` in the data folder (`WB_DATA_DIR`).",
+        "operationId": "backup_api_backup_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "The SQLite file."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download a database backup",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/categories": {
+      "post": {
+        "description": "Create a category at the end of the list. Returns the new category's `id`.",
+        "operationId": "add_category_api_categories_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "That category already exists (case-insensitive)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Add a menu category",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/categories/reorder": {
+      "post": {
+        "description": "Categories in `ids` come first, in that order (the billing sidebar order); any not listed follow.",
+        "operationId": "reorder_categories_api_categories_reorder_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "An id doesn't exist."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Set the order of menu categories",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/categories/{category_id}": {
+      "delete": {
+        "description": "Delete a category that has no items (hidden items count). Move or remove its items first.",
+        "operationId": "delete_category_api_categories__category_id__delete",
+        "parameters": [
+          {
+            "description": "The category's numeric `id`.",
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "description": "The category's numeric `id`.",
+              "title": "Category Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The category still has items."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such category."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete an empty menu category",
+        "tags": [
+          "menu"
+        ]
+      },
+      "put": {
+        "description": "Rename a category. Past bills keep the category name they were billed under.",
+        "operationId": "rename_category_api_categories__category_id__put",
+        "parameters": [
+          {
+            "description": "The category's numeric `id`.",
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "description": "The category's numeric `id`.",
+              "title": "Category Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Another category has that name."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such category."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Rename a menu category",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/config": {
+      "get": {
+        "description": "Every module's on/off state and its non-secret settings. The POS screens load this at start-up.",
+        "operationId": "public_config_api_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Public Config Api Config Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "POS configuration for the screens",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "description": "One call for the whole Dashboard, computed for the shop-local *now*. Only paid bills count;\nall money is rupees rounded to 2 dp. Keys (full field list and formulas in docs/API.md):\n\n- `target`: this month's target summary: `month`, `target`, `revenue`, `orders`,\n  `todayRevenue`, `progressPct`, `expectedPct`, `remaining`, `todayTarget`,\n  `requiredDailyFromTomorrow`, `avgDaily`, `projected`, `aov`, `netProfit`, break-even figures\n  and an `expenses` breakdown.\n- `charts`: arrays `hourly` (today vs 28-day average), `daily` (this month, with even-pace line),\n  `weekly` (12 weeks), `monthly` (12 months with target and expenses), `categorySplit`,\n  `paymentSplit` and `weekday` (8-week average per weekday).\n- `insights`: plain-English tips, each `{tone: good|warn|info, title, text}`.\n- `items`: the same object as `GET /api/items/stats` for `period`.",
+        "operationId": "dashboard_api_dashboard_get",
+        "parameters": [
+          {
+            "description": "Window for the item stats: `today`, `week` (last 7 days incl. today), `month` (this calendar month to date), `30d` (last 30 days incl. today) or `all`.",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "month",
+              "description": "Window for the item stats: `today`, `week` (last 7 days incl. today), `month` (this calendar month to date), `30d` (last 30 days incl. today) or `all`.",
+              "enum": [
+                "today",
+                "week",
+                "month",
+                "30d",
+                "all"
+              ],
+              "title": "Period",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard Api Dashboard Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Everything the Dashboard page shows",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/day-end": {
+      "get": {
+        "description": "The cash-up summary for one day (see docs/API.md). Keys: `date`, `revenue` and `orders` (paid\nbills), `aov` (revenue / orders), `items` (sold items by revenue: `name`, `category`, `qty`,\n`revenue`, `orders`), `notSold` (active items with no sale: `name`, `category`), `payments`\n(`method`, `amount`, `orders` per payment method) and `cancelled` (`n` bills, `amount` rupees).",
+        "operationId": "day_end_api_day_end_get",
+        "parameters": [
+          {
+            "description": "Shop-local day, `YYYY-MM-DD`. Defaults to today.",
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Shop-local day, `YYYY-MM-DD`. Defaults to today.",
+              "title": "Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Day End Api Day End Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Day-end closing sheet",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/expenses": {
+      "get": {
+        "description": "Expenses counted against a month, with totals in rupees. One-off expenses count in the\nmonth of their `date`; recurring (monthly) ones count in every month from the month of their\n`date` onwards. `byCategory` is sorted biggest first; lists are newest first.",
+        "operationId": "list_expenses_api_expenses_get",
+        "parameters": [
+          {
+            "description": "The month, `YYYY-MM`. Defaults to the current month.",
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The month, `YYYY-MM`. Defaults to the current month.",
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthExpensesOut"
+                }
+              }
+            },
+            "description": "The month's expenses and totals."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The month is not `YYYY-MM` (\"Enter a valid month (YYYY-MM)\")."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "List a month's expenses",
+        "tags": [
+          "finance"
+        ]
+      },
+      "post": {
+        "description": "Log an expense in rupees. `category` is free text, stored lower-case (the app suggests rent,\nsalary, ingredients, electricity, packaging, marketing, maintenance, other). `date` defaults to today.\nSet `recurring: true` for a monthly cost such as rent or salaries: it then counts in every\nmonth from `date` on. Returns the new expense's `id`; queued for the next Google Sheet sync.",
+        "operationId": "add_expense_api_expenses_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpenseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Add an expense",
+        "tags": [
+          "finance"
+        ]
+      }
+    },
+    "/api/expenses/{expense_id}": {
+      "delete": {
+        "description": "Delete an expense for good (a recurring one stops counting in every month). An unknown id is\nnot an error. Rows already pushed to the Google Sheet stay there.",
+        "operationId": "delete_expense_api_expenses__expense_id__delete",
+        "parameters": [
+          {
+            "description": "The expense's `id`.",
+            "in": "path",
+            "name": "expense_id",
+            "required": true,
+            "schema": {
+              "description": "The expense's `id`.",
+              "title": "Expense Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Delete an expense",
+        "tags": [
+          "finance"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "description": "Liveness/readiness probe used by Docker: the app is up and the database answers.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health check",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/integrations/whatsapp": {
+      "post": {
+        "description": "Phase 2: WhatsApp Business webhook. Orders will be created with source='whatsapp'.",
+        "operationId": "whatsapp_webhook_api_integrations_whatsapp_post",
+        "responses": {
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Always: WhatsApp ordering is planned for phase 2."
+          }
+        },
+        "summary": "WhatsApp ordering webhook (planned)",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/items": {
+      "post": {
+        "description": "Create an item. `code` is upper-cased; `price` and `cost` are rupees (cost is optional and\nonly feeds the margin numbers). Returns the new item's `id`.\n\nGST is not an item field: it's the `gst` module (`PUT /api/admin/modules/gst`).",
+        "operationId": "create_item_api_items_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The `code` is already used, or `category_id` does not exist."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Add a menu item",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/items/reorder": {
+      "post": {
+        "description": "Items in `ids` are placed first, in that order. Send one category's items to reorder that category.",
+        "operationId": "reorder_items_api_items_reorder_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "An id doesn't exist."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Set the order of menu items",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/items/stats": {
+      "get": {
+        "description": "How each menu item sold over a period (paid bills only, rupees). Keys: `period`, `from`, `to` (shop-local dates; `to` is exclusive, `from` is `0000-00-00` for `all`), `items` (every menu item with `qty`, `orders`, `revenue`, `share` % of item revenue and `margin` % or null), `bestSeller` (most revenue), `mostPopular` (most units), `customerFavourite` (in the most bills), `topByRevenue`, `topByQty` (top 5 each) and `slowMovers` (5 active items selling least). See docs/API.md.",
+        "operationId": "item_stats_api_items_stats_get",
+        "parameters": [
+          {
+            "description": "Window for the item stats: `today`, `week` (last 7 days incl. today), `month` (this calendar month to date), `30d` (last 30 days incl. today) or `all`.",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "month",
+              "description": "Window for the item stats: `today`, `week` (last 7 days incl. today), `month` (this calendar month to date), `30d` (last 30 days incl. today) or `all`.",
+              "enum": [
+                "today",
+                "week",
+                "month",
+                "30d",
+                "all"
+              ],
+              "title": "Period",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Item Stats Api Items Stats Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Menu item performance",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/items/{item_id}": {
+      "delete": {
+        "description": "Delete an item that has never been billed. An item that appears on past bills is hidden\ninstead (`active` set to false) and the response says `hidden: true`.\n\nAn unknown id is not an error: the response is `{\"ok\": true, \"hidden\": false}`.",
+        "operationId": "delete_item_api_items__item_id__delete",
+        "parameters": [
+          {
+            "description": "The item's numeric `id` (not its short code like `W01`).",
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "description": "The item's numeric `id` (not its short code like `W01`).",
+              "title": "Item Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Delete or hide a menu item",
+        "tags": [
+          "menu"
+        ]
+      },
+      "put": {
+        "description": "Replace every field of an item (send the whole item, as for create).\n\nA price change applies to new bills only; past bills keep the price they were billed at.\nSet `active: false` to hide an item from the billing screen, `true` to bring it back.",
+        "operationId": "update_item_api_items__item_id__put",
+        "parameters": [
+          {
+            "description": "The item's numeric `id` (not its short code like `W01`).",
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "description": "The item's numeric `id` (not its short code like `W01`).",
+              "title": "Item Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The `code` is already used by another item, or `category_id` does not exist."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No item with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Update a menu item",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/menu": {
+      "get": {
+        "description": "All categories (in display order) and all items, including hidden ones (`active: false`).\n\nThe billing screen shows only active items; hidden items stay so old bills still make sense.",
+        "operationId": "get_menu_api_menu_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the full menu",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/orders": {
+      "get": {
+        "description": "Every bill created on that day, newest first, including cancelled ones (`status: cancelled`).",
+        "operationId": "list_orders_api_orders_get",
+        "parameters": [
+          {
+            "description": "Shop-local day, `YYYY-MM-DD`. Defaults to today.",
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Shop-local day, `YYYY-MM-DD`. Defaults to today.",
+              "title": "Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OrderOut"
+                  },
+                  "title": "Response List Orders Api Orders Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "List one day's bills",
+        "tags": [
+          "orders"
+        ]
+      },
+      "post": {
+        "description": "Create a paid bill and return it with its `bill_no` (`WB<yymmdd>-<nnn>`, numbered per day).\n\nPrices come from the menu, never from the request. Totals, in rupees:\n`subtotal` = sum of price x qty; `discount` = rupees off before GST (rejected with 400 when\ndiscounts are not allowed or exceed the allowed cap); `tax` = (subtotal - discount) x GST rate\n/ 100 (0 when GST is off); `total` = subtotal - discount + tax. `created_at` is the shop-local\ntime now (`YYYY-MM-DD HH:MM:SS`). The bill is queued for the next Google Sheet sync.",
+        "operationId": "create_order_api_orders_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The order is empty, an `item_id` is unknown, or the discount is not allowed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Bill an order",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/api/orders/{order_id}": {
+      "get": {
+        "description": "One bill with its line items, for reprinting or checking.",
+        "operationId": "get_order_api_orders__order_id__get",
+        "parameters": [
+          {
+            "description": "The order's numeric `id` (not its `bill_no`).",
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "description": "The order's numeric `id` (not its `bill_no`).",
+              "title": "Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No order with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Get one bill",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/api/orders/{order_id}/cancel": {
+      "post": {
+        "description": "Mark a bill `cancelled` and return it. The bill is kept (bills are history) but no longer\ncounts towards revenue, targets or item stats; the day-end sheet lists it under `cancelled`.\nThe next Google Sheet sync appends the bill again with status `cancelled` (the earlier row is\nleft as it was). Cancelling twice is harmless.",
+        "operationId": "cancel_order_api_orders__order_id__cancel_post",
+        "parameters": [
+          {
+            "description": "The order's numeric `id` (not its `bill_no`).",
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "description": "The order's numeric `id` (not its `bill_no`).",
+              "title": "Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No order with that id."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Cancel a bill",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/api/sync": {
+      "post": {
+        "description": "Push bills and expenses not yet synced (up to 500 bills per run) to the Google Sheet and\nrewrite its Daily, Items and Monthly summary tabs. The same sync runs in the background on the\ninterval set in Admin → Modules → Google Sheet sync (5 minutes by default).\n\nAlways answers 200: check `ok`. `skipped: true` means sync is switched off in the admin dashboard;\n`ok: false` without `skipped` means it is not configured or failed (`message` says why);\n`at` is the shop-local time of a successful sync.",
+        "operationId": "sync_api_sync_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sync to the Google Sheet now",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/targets/{month}": {
+      "put": {
+        "description": "Set (or replace) the revenue target for one month, in rupees. With `makeDefault: true` the\namount also becomes the `default_target` setting, used for every month without its own target.",
+        "operationId": "set_target_api_targets__month__put",
+        "parameters": [
+          {
+            "description": "The month, `YYYY-MM`, e.g. `2026-11`.",
+            "in": "path",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "description": "The month, `YYYY-MM`, e.g. `2026-11`.",
+              "title": "Month",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TargetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The month is not `YYYY-MM` (\"Enter a valid month (YYYY-MM)\")."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Set a month's revenue target",
+        "tags": [
+          "finance"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "Categories and items: what can be billed, at what price.",
+      "name": "menu"
+    },
+    {
+      "description": "Bills: create, list by day, look up and cancel.",
+      "name": "orders"
+    },
+    {
+      "description": "Read-only numbers: target progress, charts, tips, day-end.",
+      "name": "dashboard"
+    },
+    {
+      "description": "Monthly revenue targets and expenses.",
+      "name": "finance"
+    },
+    {
+      "description": "Health, Google Sheet sync, backup, webhooks.",
+      "name": "system"
+    },
+    {
+      "description": "PIN sign-in, feature modules and their settings, and the POS config.",
+      "name": "admin"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# docker compose up -d --build   ->  http://localhost:4000
+services:
+  pos:
+    build: .
+    image: waffle-bros-pos:latest
+    container_name: waffle-bros-pos
+    restart: unless-stopped
+    ports:
+      - "4000:4000"          # reachable from tablets on the shop Wi-Fi too
+    environment:
+      WB_TIMEZONE: Asia/Kolkata
+      WB_SYNC_INTERVAL_SECONDS: "300"
+    volumes:
+      - pos-data:/data       # sales, menu, expenses (SQLite). Survives rebuilds and updates.
+      - ./secrets:/secrets:ro  # put the Google service-account key here, then set its path to /secrets/<file>.json in Admin → Modules → Google Sheet sync
+
+volumes:
+  pos-data:

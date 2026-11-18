@@ -93,3 +93,52 @@ def remove_item(session: Session, item_id: int) -> bool:
         session.delete(item)
     session.flush()
     return used is not None
+
+
+def rename_category(session: Session, category_id: int, name: str) -> Category | None:
+    cat = session.get(Category, category_id)
+    if cat is None:
+        return None
+    clash = session.scalar(
+        select(Category).where(func.lower(Category.name) == name.lower(), Category.id != category_id)
+    )
+    if clash is not None:
+        raise MenuError("That category already exists")
+    cat.name = name
+    session.flush()
+    return cat
+
+
+def delete_category(session: Session, category_id: int) -> bool:
+    """Delete an empty category. Returns False if it doesn't exist."""
+    cat = session.get(Category, category_id)
+    if cat is None:
+        return False
+    if session.scalar(select(Item.id).where(Item.category_id == category_id).limit(1)) is not None:
+        raise MenuError("Move or remove this category's items first")
+    session.delete(cat)
+    session.flush()
+    return True
+
+
+def reorder_categories(session: Session, ids: list[int]) -> None:
+    """Set display order: categories listed first, in the given order; any others keep their order after."""
+    _reorder(session, Category, ids)
+
+
+def reorder_items(session: Session, ids: list[int]) -> None:
+    """Set the display order of the given items (usually one category's items)."""
+    _reorder(session, Item, ids)
+
+
+def _reorder[M: (Category, Item)](session: Session, model: type[M], ids: list[int]) -> None:
+    rows = {r.id: r for r in session.scalars(select(model).order_by(model.sort, model.id))}
+    unknown = [i for i in ids if i not in rows]
+    if unknown:
+        raise MenuError(f"Unknown id {unknown[0]}")
+    wanted = set(ids)
+    ordered: list[M] = [rows[i] for i in dict.fromkeys(ids)]
+    rest: list[M] = [r for r in rows.values() if r.id not in wanted]
+    for position, row in enumerate([*ordered, *rest]):
+        row.sort = position
+    session.flush()

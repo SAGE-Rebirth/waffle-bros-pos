@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from waffle_pos.db.models import Expense, Item, Target
+from waffle_pos.modules.registry import save_settings
 from waffle_pos.schemas import OrderCreate, OrderLineIn, PaymentMethod
 from waffle_pos.services.analytics import (
     charts,
@@ -18,7 +19,6 @@ from waffle_pos.services.analytics import (
 )
 from waffle_pos.services.insights import insights
 from waffle_pos.services.orders import cancel_order, create_order
-from waffle_pos.services.settings import set_settings
 from waffle_pos.services.targets import TargetInput, compute
 
 NOW = datetime(2026, 11, 18, 15, 30)  # a Wednesday
@@ -66,7 +66,7 @@ def shop(db_session: Session) -> Session:
 def test_get_target_prefers_month_row_then_default(shop: Session) -> None:
     assert get_target(shop, "2026-11") == 50_000
     assert get_target(shop, "2026-10") == 100_000  # settings default_target
-    set_settings(shop, {"default_target": "75000"})
+    save_settings(shop, "targets", {"default_target": 75000})
     assert get_target(shop, "2026-10") == 75_000
 
 

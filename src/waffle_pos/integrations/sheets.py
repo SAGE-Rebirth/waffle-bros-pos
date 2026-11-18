@@ -1,10 +1,11 @@
 """Google Sheets sync.
 
-Pushes new orders, order items and expenses as rows, and rewrites a "Daily" summary tab, so the
-numbers can be reviewed outside the shop.
+Appends new orders, order items and expenses as rows, and rewrites the Daily, Items and Monthly
+summary tabs, so the numbers can be reviewed outside the shop. Other tabs (such as an Overview tab
+with charts) are never touched.
 
 Setup (once): create a Google Cloud service account, download its JSON key, share the spreadsheet
-with the service account's email as Editor, then fill in Settings -> Google Sheet in the POS.
+with the service account's email as Editor, then fill in Admin -> Modules -> Google Sheet sync.
 
 The service-account JWT is signed with google-auth; every HTTP call goes through httpx. Database
 work happens in short synchronous sections (SQLite is local and fast), never across a network call.
@@ -32,8 +33,11 @@ from sqlalchemy.orm import Session, selectinload, sessionmaker
 from waffle_pos import clock
 from waffle_pos.db.models import Expense, Order
 from waffle_pos.db.session import session_scope
+from waffle_pos.modules.builtin import GoogleSheetsSettings
+from waffle_pos.modules.registry import is_enabled, settings_of, store_internal
 from waffle_pos.schemas import SyncResult
-from waffle_pos.services.settings import get_settings, set_settings
+from waffle_pos.services import analytics
+from waffle_pos.services.targets import money
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +70,34 @@ TABS: dict[str, list[str]] = {
     "OrderItems": ["Bill No", "Date", "Time", "Item", "Category", "Price", "Qty", "Line Total"],
     "Expenses": ["Date", "Category", "Amount", "Recurring", "Note"],
     "Daily": ["Date", "Revenue", "Orders", "Avg Bill", "Top Item"],
+    "Items": [
+        "Code",
+        "Item",
+        "Category",
+        "Price",
+        "Cost",
+        "Margin %",
+        "Qty (30 days)",
+        "Bills (30 days)",
+        "Revenue (30 days)",
+        "Share %",
+        "On Menu",
+    ],
+    "Monthly": [
+        "Month",
+        "Target",
+        "Revenue",
+        "Orders",
+        "Avg Bill",
+        "% of Target",
+        "Expenses",
+        "Net Profit",
+    ],
 }
+"""Tabs the sync writes. Orders, OrderItems and Expenses only ever get new rows appended;
+Daily, Items and Monthly are summaries rewritten in full on every sync."""
+SUMMARY_TABS = ("Daily", "Items", "Monthly")
+SUMMARY_MAX_ROW = 2000
 
 Cell = str | int | float
 Row = list[Cell]
@@ -187,12 +218,18 @@ class _SheetsApi:
                 body={"values": rows},
             )
 
-    async def replace_daily(self, rows: list[Row]) -> None:
-        await self.call("POST", "/values/Daily!A2:E1000:clear", body={})
+    async def replace(self, tab: str, rows: list[Row]) -> None:
+        """Overwrite a summary tab below its header row.
+
+        New rows are written first and only the leftover rows below them cleared, so the tab is
+        never empty in between: Google drops a chart's series when its columns go blank.
+        """
+        last_col = chr(ord("A") + len(TABS[tab]) - 1)
         if rows:
             await self.call(
-                "PUT", "/values/Daily!A2", params={"valueInputOption": "USER_ENTERED"}, body={"values": rows}
+                "PUT", f"/values/{tab}!A2", params={"valueInputOption": "USER_ENTERED"}, body={"values": rows}
             )
+        await self.call("POST", f"/values/{tab}!A{len(rows) + 2}:{last_col}{SUMMARY_MAX_ROW}:clear", body={})
 
 
 # ---------- Rows (sync DB sections) ----------
@@ -255,6 +292,33 @@ def _daily_rows(session: Session, now: datetime) -> list[Row]:
     return rows
 
 
+def _item_rows(session: Session, now: datetime) -> list[Row]:
+    """Every menu item with its last-30-days sales, best earners first."""
+    stats = analytics.item_stats(session, "30d", now)
+    return [
+        [
+            i["code"], i["name"], i["category"], i["price"], i["cost"],
+            "" if i["margin"] is None else i["margin"],
+            i["qty"], i["orders"], i["revenue"], i["share"], "Yes" if i["active"] else "Hidden",
+        ]
+        for i in stats["items"]
+    ]  # fmt: skip
+
+
+def _monthly_rows(session: Session, now: datetime) -> list[Row]:
+    """The last 12 months: target, revenue, expenses and profit."""
+    rows: list[Row] = []
+    for m in analytics.monthly_summary(session, now.date()):
+        revenue, target, orders = m["revenue"], m["target"], m["orders"]
+        rows.append([
+            m["key"], target, revenue, orders,
+            money(revenue / orders) if orders else 0,
+            money(revenue / target * 100) if target else 0,
+            m["expenses"], money(revenue - m["expenses"]),
+        ])  # fmt: skip
+    return rows
+
+
 def _mark_synced(
     session_factory: sessionmaker[Session], model: type[Order] | type[Expense], ids: list[int]
 ) -> None:
@@ -274,13 +338,18 @@ async def sync_now(
     are only marked synced after Google has accepted them.
     """
     with session_scope(session_factory) as session:
-        settings = get_settings(session)
-    if settings.get("sheets_enabled") != "1":
-        return SyncResult(ok=False, skipped=True, message="Google Sheet sync is turned off in Settings.")
-    spreadsheet_id = settings.get("sheets_spreadsheet_id", "").strip()
-    credentials_path = settings.get("sheets_credentials_path", "").strip()
+        enabled = is_enabled(session, "google_sheets")
+        cfg = settings_of(session, "google_sheets", GoogleSheetsSettings)
+    if not enabled:
+        return SyncResult(
+            ok=False, skipped=True, message="Google Sheet sync is switched off in the admin dashboard."
+        )
+    spreadsheet_id = cfg.spreadsheet_id.strip()
+    credentials_path = cfg.credentials_path.strip()
     if not spreadsheet_id or not credentials_path:
-        return SyncResult(ok=False, message="Add the spreadsheet ID and credentials file path in Settings.")
+        return SyncResult(
+            ok=False, message="Add the spreadsheet ID and key file path in Admin → Google Sheet sync."
+        )
 
     own_client = client is None
     http = client or httpx.AsyncClient(timeout=HTTP_TIMEOUT)
@@ -301,24 +370,36 @@ async def sync_now(
 
         now = clock.now()
         with session_scope(session_factory) as session:
-            daily = _daily_rows(session, now)
-        await api.replace_daily(daily)
+            summaries = {
+                "Daily": _daily_rows(session, now),
+                "Items": _item_rows(session, now),
+                "Monthly": _monthly_rows(session, now),
+            }
+        for tab in SUMMARY_TABS:
+            await api.replace(tab, summaries[tab])
     finally:
         if own_client:
             await http.aclose()
 
     at = f"{clock.now():%Y-%m-%d %H:%M:%S}"
     with session_scope(session_factory) as session:
-        set_settings(session, {"sheets_last_sync": at})
+        store_internal(session, "google_sheets", {"last_sync": at})
     return SyncResult(
         ok=True, message=f"Synced {len(order_ids)} orders and {len(expense_ids)} expenses.", at=at
     )
 
 
 async def sync_loop(
-    session_factory: sessionmaker[Session], interval_seconds: int, *, initial_delay: float = 10.0
+    session_factory: sessionmaker[Session],
+    interval_seconds: int | None = None,
+    *,
+    initial_delay: float = 10.0,
 ) -> None:
-    """Sync in the background forever. Failures are logged and retried next round, never raised."""
+    """Sync in the background forever. Failures are logged and retried next round, never raised.
+
+    The interval comes from the module's settings (``interval_minutes``) unless ``interval_seconds``
+    is given, so changing it in the admin dashboard takes effect after the current wait.
+    """
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         await asyncio.sleep(initial_delay)
         while True:
@@ -332,4 +413,12 @@ async def sync_loop(
                 logger.warning("[sheets] sync failed: %s", e)
             except Exception:
                 logger.exception("[sheets] sync failed unexpectedly")
-            await asyncio.sleep(max(interval_seconds, 1))
+            await asyncio.sleep(max(interval_seconds or _interval_from_settings(session_factory), 1))
+
+
+def _interval_from_settings(session_factory: sessionmaker[Session]) -> int:
+    try:
+        with session_scope(session_factory) as session:
+            return settings_of(session, "google_sheets", GoogleSheetsSettings).interval_minutes * 60
+    except Exception:  # pragma: no cover - never let the loop die over settings
+        return 300

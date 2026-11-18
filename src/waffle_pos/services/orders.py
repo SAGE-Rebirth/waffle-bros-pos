@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from waffle_pos import clock
 from waffle_pos.db.models import Item, Order, OrderItem
+from waffle_pos.modules.builtin import DiscountSettings, GstSettings
+from waffle_pos.modules.registry import is_enabled, settings_of
 from waffle_pos.schemas import OrderCreate
-from waffle_pos.services.settings import get_float, get_settings
 
 
 class OrderError(ValueError):
@@ -50,8 +51,16 @@ def create_order(session: Session, data: OrderCreate, when: datetime | None = No
         )
 
     subtotal = sum(li.price * li.qty for li in lines)
-    discount = min(subtotal, data.discount)
-    gst_rate = get_float(get_settings(session), "gst_rate")
+    discount = 0.0
+    if data.discount > 0:
+        if not is_enabled(session, "discounts"):
+            raise OrderError("Discounts are switched off in the admin dashboard")
+        max_pct = settings_of(session, "discounts", DiscountSettings).max_discount_pct
+        cap = subtotal * max_pct / 100
+        if data.discount > cap + 0.005:
+            raise OrderError(f"Discount can be at most {max_pct:g}% of the bill (₹{cap:,.0f})")
+        discount = min(subtotal, data.discount)
+    gst_rate = settings_of(session, "gst", GstSettings).rate if is_enabled(session, "gst") else 0.0
     tax = _money((subtotal - discount) * gst_rate / 100)
     order = Order(
         bill_no=next_bill_no(session, when),
