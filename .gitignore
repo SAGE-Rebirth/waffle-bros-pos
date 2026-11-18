@@ -1,10 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+build/
+
+# Front end
 node_modules/
-client/dist/
+frontend/dist/
+
+# Shop data (never commit real sales or keys)
 data/
 data-demo/
-*.db
-*.db-wal
-*.db-shm
-*.json.key
+*.db*
 google-key*.json
+*.json.key
+.env
+
+# OS
 .DS_Store
+Thumbs.db

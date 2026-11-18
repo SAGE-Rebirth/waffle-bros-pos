@@ -1,0 +1,37 @@
+"""Process configuration, read from environment variables (prefix ``WB_``) or a ``.env`` file.
+
+Shop-level settings that the owner edits in the app (GST, target, Google Sheet) live in the
+database instead; see :mod:`waffle_pos.services.settings`.
+"""
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+class AppConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="WB_", env_file=".env", extra="ignore")
+
+    data_dir: Path = PROJECT_ROOT / "data"
+    host: str = "0.0.0.0"  # noqa: S104 - reachable from tablets on the shop Wi-Fi by design
+    port: int = 4000
+    timezone: str = "Asia/Kolkata"
+    frontend_dist: Path = PROJECT_ROOT / "frontend" / "dist"
+    sync_interval_seconds: int = 300
+    start_sync_loop: bool = True
+
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "waffle-bros.db"
+
+    @property
+    def db_url(self) -> str:
+        return f"sqlite:///{self.db_path.as_posix()}"
+
+
+@lru_cache
+def get_config() -> AppConfig:
+    return AppConfig()

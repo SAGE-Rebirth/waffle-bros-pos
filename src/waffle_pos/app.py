@@ -1,0 +1,83 @@
+"""FastAPI application factory."""
+
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from waffle_pos import __version__
+from waffle_pos.api import dashboard, finance, menu, orders, system
+from waffle_pos.config import AppConfig, get_config
+from waffle_pos.db.migrate import upgrade_to_head
+from waffle_pos.db.seed import seed_if_empty
+from waffle_pos.db.session import make_engine, make_session_factory, session_scope
+from waffle_pos.integrations import sheets
+
+
+def create_app(config: AppConfig | None = None) -> FastAPI:
+    config = config or get_config()
+    engine = make_engine(config)
+    factory = make_session_factory(engine)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        upgrade_to_head(engine)
+        with session_scope(factory) as s:
+            seed_if_empty(s)
+        task = (
+            asyncio.create_task(sheets.sync_loop(factory, config.sync_interval_seconds))
+            if config.start_sync_loop
+            else None
+        )
+        yield
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        engine.dispose()
+
+    app = FastAPI(title="Waffle Bros POS", version=__version__, lifespan=lifespan)
+    app.state.config = config
+    app.state.session_factory = factory
+
+    # The front end reads {"error": "..."} from failed requests.
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+        errors = exc.errors()
+        first = errors[0] if errors else {}
+        field = ".".join(str(p) for p in first.get("loc", ())[1:])
+        msg = str(first.get("msg", "Invalid request")).removeprefix("Value error, ")
+        return JSONResponse({"error": f"{field}: {msg}" if field else msg}, status_code=422)
+
+    for module in (menu, orders, dashboard, finance, system):
+        app.include_router(module.router)
+
+    dist = config.frontend_dist
+    if (dist / "index.html").exists():
+        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def spa(path: str) -> FileResponse:
+            file = (dist / path).resolve()
+            if path and file.is_file() and file.is_relative_to(dist.resolve()):
+                return FileResponse(file)
+            return FileResponse(dist / "index.html")
+    else:
+
+        @app.get("/", include_in_schema=False)
+        def not_built() -> HTMLResponse:
+            return HTMLResponse(
+                "Front end not built yet. Run <code>npm ci && npm run build</code> in <code>frontend/</code>."
+            )
+
+    return app
