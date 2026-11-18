@@ -1,15 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, inr, EMOJI } from '../api.js';
 import { Receipt } from '../components/Receipt.jsx';
+import { useConfig } from '../config.jsx';
 
-export default function Billing({ onOrder, notify, goSettings }) {
+const PAY_LABELS = { upi: 'UPI', cash: 'Cash', card: 'Card' };
+const typeLabel = (t) => t[0].toUpperCase() + t.slice(1);
+
+export default function Billing({ onOrder, notify, goAdmin }) {
+  const { settings: cfg, enabled } = useConfig();
+  const shop = cfg('shop');
+  const bs = cfg('billing');
+  const payMethods = bs.payment_methods?.length ? bs.payment_methods : ['upi', 'cash', 'card'];
+  const defaultPay = payMethods.includes(bs.default_payment) ? bs.default_payment : payMethods[0];
+  const orderTypes = bs.order_types?.length ? bs.order_types : ['dine-in', 'takeaway', 'delivery'];
+  const discountsOn = enabled('discounts');
+  const maxPct = Number(cfg('discounts').max_discount_pct ?? 100);
+  const gstOn = enabled('gst');
   const [menu, setMenu] = useState({ categories: [], items: [] });
-  const [settings, setSettings] = useState({});
   const [cat, setCat] = useState('all');
   const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); // [{item, qty}]
-  const [pay, setPay] = useState('upi');
-  const [type, setType] = useState('dine-in');
+  const [payPick, setPay] = useState(null);
+  const [typePick, setType] = useState(null);
+  const [chargeErr, setChargeErr] = useState('');
   const [discount, setDiscount] = useState('');
   const [showCustomer, setShowCustomer] = useState(false);
   const [customer, setCustomer] = useState({ name: '', phone: '' });
@@ -19,7 +32,6 @@ export default function Billing({ onOrder, notify, goSettings }) {
 
   useEffect(() => {
     api.get('/api/menu').then(setMenu).catch((e) => notify(e.message));
-    api.get('/api/settings').then(setSettings).catch(() => {});
   }, []);
 
   const active = menu.items.filter((i) => i.active);
@@ -33,18 +45,26 @@ export default function Billing({ onOrder, notify, goSettings }) {
     return ex ? c.map((l) => (l === ex ? { ...l, qty: l.qty + 1 } : l)) : [...c, { item, qty: 1 }];
   });
   const setQty = (id, qty) => setCart((c) => (qty <= 0 ? c.filter((l) => l.item.id !== id) : c.map((l) => (l.item.id === id ? { ...l, qty } : l))));
-  const clear = () => { setCart([]); setDiscount(''); setCustomer({ name: '', phone: '' }); setShowCustomer(false); };
+  // The admin can change the allowed methods/types at any time; fall back to the defaults.
+  const pay = payMethods.includes(payPick) ? payPick : defaultPay;
+  const type = orderTypes.includes(typePick) ? typePick : orderTypes[0];
+  const clear = () => { setCart([]); setDiscount(''); setCustomer({ name: '', phone: '' }); setShowCustomer(false); setPay(null); setChargeErr(''); };
 
   const subtotal = cart.reduce((s, l) => s + l.item.price * l.qty, 0);
-  const disc = Math.min(subtotal, Math.max(0, Number(discount) || 0));
-  const gst = Number(settings.gst_rate || 0);
+  const discMax = Math.floor((subtotal * maxPct) / 100 * 100) / 100;
+  const discAsked = discountsOn ? Math.max(0, Number(discount) || 0) : 0;
+  const discOver = discAsked > discMax + 0.005;
+  const disc = Math.min(subtotal, discAsked, discMax);
+  const gst = gstOn ? Number(cfg('gst').rate || 0) : 0;
   const tax = Math.round((subtotal - disc) * gst) / 100;
   const total = subtotal - disc + tax;
   const qtyOf = (id) => cart.find((l) => l.item.id === id)?.qty || 0;
 
   const charge = async (print) => {
     if (!cart.length || busy) return;
+    if (bs.print_on_save) print = true;
     setBusy(true);
+    setChargeErr('');
     try {
       const order = await api.post('/api/orders', {
         items: cart.map((l) => ({ item_id: l.item.id, qty: l.qty })),
@@ -56,7 +76,7 @@ export default function Billing({ onOrder, notify, goSettings }) {
       onOrder();
       notify(`Bill ${order.bill_no} saved · ${inr(order.total)}`);
       if (print) { setPrintOrder(order); setTimeout(() => window.print(), 80); }
-    } catch (e) { notify(e.message); }
+    } catch (e) { setChargeErr(e.message); notify(e.message); }
     setBusy(false);
   };
 
@@ -88,7 +108,7 @@ export default function Billing({ onOrder, notify, goSettings }) {
           </button>
         ))}
         <div className="grow" />
-        <button onClick={goSettings}>⚙️ Settings</button>
+        <button onClick={goAdmin}>⚙️ Admin</button>
       </aside>
 
       <section className="menu-pane">
@@ -133,40 +153,53 @@ export default function Billing({ onOrder, notify, goSettings }) {
           ))}
         </div>
         <div className="inv-foot">
-          <div className="seg" style={{ width: '100%' }}>
-            {['dine-in', 'takeaway', 'delivery'].map((t) => (
-              <button key={t} style={{ flex: 1 }} className={type === t ? 'active' : ''} onClick={() => setType(t)}>{t[0].toUpperCase() + t.slice(1)}</button>
-            ))}
-          </div>
-          {showCustomer ? (
+          {orderTypes.length > 1 && (
+            <div className="seg" style={{ width: '100%' }}>
+              {orderTypes.map((t) => (
+                <button key={t} style={{ flex: 1 }} className={type === t ? 'active' : ''} onClick={() => setType(t)}>{typeLabel(t)}</button>
+              ))}
+            </div>
+          )}
+          {showCustomer && bs.customer_capture ? (
             <div className="row">
               <input placeholder="Customer name" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} />
               <input placeholder="Phone" inputMode="tel" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
             </div>
-          ) : (
+          ) : (bs.customer_capture || discountsOn) && (
             <div className="row" style={{ justifyContent: 'space-between' }}>
-              <button className="btn ghost sm" onClick={() => setShowCustomer(true)}>+ Customer</button>
-              <label className="row small muted" style={{ gap: 6 }}>Discount ₹<input style={{ width: 80, padding: '5px 8px' }} inputMode="numeric" value={discount} onChange={(e) => setDiscount(e.target.value.replace(/[^\d.]/g, ''))} /></label>
+              {bs.customer_capture ? <button className="btn ghost sm" onClick={() => setShowCustomer(true)}>+ Customer</button> : <span />}
+              {discountsOn && (
+                <label className="row small muted" style={{ gap: 6 }} title={`Up to ${maxPct}% of the bill`}>Discount ₹
+                  <input className={discOver ? 'invalid' : ''} style={{ width: 80, padding: '5px 8px' }} inputMode="numeric" value={discount}
+                    onChange={(e) => { setDiscount(e.target.value.replace(/[^\d.]/g, '')); setChargeErr(''); }} />
+                </label>
+              )}
             </div>
           )}
+          {discOver && <div className="err" style={{ marginTop: -4 }}>Max discount is {maxPct}% of the bill ({inr(discMax, discMax % 1 ? 2 : 0)}). Only that much will be applied.</div>}
           <div className="sum num">
             <div><span>Items ({cart.reduce((s, l) => s + l.qty, 0)})</span><span>{inr(subtotal)}</span></div>
-            {disc > 0 && <div><span>Discount</span><span>−{inr(disc)}</span></div>}
+            {disc > 0 && <div><span>Discount</span><span>−{inr(disc, disc % 1 ? 2 : 0)}</span></div>}
             {gst > 0 && <div><span>GST {gst}%</span><span>{inr(tax, 2)}</span></div>}
-            <div className="total"><span>Order amount</span><span>{inr(total, gst > 0 ? 2 : 0)}</span></div>
+            <div className="total"><span>Order amount</span><span>{inr(total, gst > 0 || disc % 1 ? 2 : 0)}</span></div>
           </div>
-          <div className="pay">
-            {[['upi', 'UPI'], ['cash', 'Cash'], ['card', 'Card']].map(([k, l]) => (
-              <button key={k} className={pay === k ? 'active' : ''} onClick={() => setPay(k)}>{l}</button>
-            ))}
-          </div>
-          <div className="charge">
-            <button className="btn" disabled={!cart.length || busy} onClick={() => charge(false)}>Save</button>
-            <button className="btn dark" disabled={!cart.length || busy} onClick={() => charge(true)} title="Ctrl + Enter">Save & Print</button>
+          {payMethods.length > 1 && (
+            <div className="pay" style={{ gridTemplateColumns: `repeat(${payMethods.length}, 1fr)` }}>
+              {payMethods.map((k) => (
+                <button key={k} className={pay === k ? 'active' : ''} onClick={() => setPay(k)}>{PAY_LABELS[k] || typeLabel(k)}</button>
+              ))}
+            </div>
+          )}
+          {chargeErr && <div className="err">{chargeErr}</div>}
+          <div className={bs.print_on_save ? 'charge single' : 'charge'}>
+            {!bs.print_on_save && <button className="btn" disabled={!cart.length || busy} onClick={() => charge(false)}>Save</button>}
+            <button className="btn dark" disabled={!cart.length || busy} onClick={() => charge(true)} title="Ctrl + Enter">
+              Save & Print{payMethods.length === 1 ? ` · ${PAY_LABELS[pay] || pay}` : ''}
+            </button>
           </div>
         </div>
       </aside>
-      <Receipt order={printOrder} settings={settings} />
+      <Receipt order={printOrder} shop={shop} gstin={gstOn ? cfg('gst').gstin : ''} />
     </div>
   );
 }

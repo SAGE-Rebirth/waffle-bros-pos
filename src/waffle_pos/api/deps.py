@@ -3,10 +3,11 @@
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session, sessionmaker
 
 from waffle_pos.schemas import ErrorOut
+from waffle_pos.services import auth
 
 
 def get_session_factory(request: Request) -> sessionmaker[Session]:
@@ -41,3 +42,14 @@ def errors(described: dict[int, str]) -> dict[int | str, dict[str, Any]]:
 
 
 INVALID = "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+
+
+def require_admin(db: DB, authorization: Annotated[str | None, Header()] = None) -> None:
+    """Dependency: the request must carry ``Authorization: Bearer <token>`` from ``POST /api/admin/login``."""
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not token or not auth.verify_token(db, token):
+        raise bad_request("Admin PIN required", 401)
+
+
+AdminOnly = Depends(require_admin)
+ADMIN_401 = "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."

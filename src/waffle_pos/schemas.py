@@ -88,6 +88,10 @@ class MenuOut(BaseModel):
     items: list[ItemOut]
 
 
+class ReorderIn(BaseModel):
+    ids: list[int] = Field(min_length=1, description="Ids in the new display order.")
+
+
 class IdOut(BaseModel):
     id: int
 

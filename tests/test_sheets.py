@@ -25,9 +25,10 @@ from waffle_pos.db.models import Expense, Item, Order
 from waffle_pos.db.seed import seed_if_empty
 from waffle_pos.db.session import make_engine, make_session_factory, session_scope
 from waffle_pos.integrations import sheets
+from waffle_pos.modules import registry
+from waffle_pos.modules.builtin import GoogleSheetsSettings
 from waffle_pos.schemas import OrderCreate, OrderLineIn, SyncResult
 from waffle_pos.services.orders import cancel_order, create_order
-from waffle_pos.services.settings import get_settings, set_settings
 
 TOKEN_URI = "https://oauth2.example.test/token"  # noqa: S105 - fake endpoint
 SHEET_ID = "sheet-123"
@@ -146,16 +147,18 @@ def sheets_key_file(tmp_path: Path, sheets_private_key: rsa.RSAPrivateKey) -> Pa
     return path
 
 
+def _last_sync(session: Session) -> str:
+    return registry.settings_of(session, "google_sheets", GoogleSheetsSettings).last_sync
+
+
 @pytest.fixture
 def sheets_enabled(sheets_factory: sessionmaker[Session], sheets_key_file: Path) -> sessionmaker[Session]:
     with session_scope(sheets_factory) as session:
-        set_settings(
+        registry.set_enabled(session, "google_sheets", True)
+        registry.save_settings(
             session,
-            {
-                "sheets_enabled": "1",
-                "sheets_spreadsheet_id": SHEET_ID,
-                "sheets_credentials_path": str(sheets_key_file),
-            },
+            "google_sheets",
+            {"spreadsheet_id": SHEET_ID, "credentials_path": str(sheets_key_file)},
         )
     return sheets_factory
 
@@ -190,7 +193,7 @@ def test_disabled_is_skipped(sheets_factory: sessionmaker[Session]) -> None:
 
 def test_enabled_without_config_asks_for_it(sheets_factory: sessionmaker[Session]) -> None:
     with session_scope(sheets_factory) as session:
-        set_settings(session, {"sheets_enabled": "1"})
+        registry.set_enabled(session, "google_sheets", True)
     result = run(_sync(sheets_factory, FakeGoogle()))
     assert not result.ok and not result.skipped
     assert "spreadsheet ID" in result.message
@@ -206,7 +209,7 @@ def test_sync_appends_rows_and_marks_synced(sheets_enabled: sessionmaker[Session
     assert result.at
 
     # Missing tabs created, with headers; the existing one left alone.
-    assert fake.added_tabs == ["OrderItems", "Expenses", "Daily"]
+    assert fake.added_tabs == ["OrderItems", "Expenses", "Daily", "Items", "Monthly"]
     assert fake.written["OrderItems!A1"] == [sheets.TABS["OrderItems"]]
     assert "Orders!A1" not in fake.written
 
@@ -230,13 +233,31 @@ def test_sync_appends_rows_and_marks_synced(sheets_enabled: sessionmaker[Session
 
     # Daily: today only, paid bills only (the cancelled family pack is left out).
     today = f"{clock.today():%Y-%m-%d}"
-    assert fake.cleared == ["/values/Daily!A2:E1000:clear"]
+    assert fake.cleared == [
+        "/values/Daily!A3:E2000:clear",
+        "/values/Items!A20:K2000:clear",
+        "/values/Monthly!A14:H2000:clear",
+    ]
     assert fake.written["Daily!A2"] == [[today, 537 + 129, 2, 333, "Nutella"]]
+
+    # Items: whole menu, best earners first, last 30 days of paid bills.
+    item_rows = fake.written["Items!A2"]
+    assert len(item_rows) == 18
+    assert item_rows[0][:3] == ["W05", "Nutella", "Waffle"]
+    assert item_rows[0][6:9] == [2, 1, 398]
+    assert all(len(r) == len(sheets.TABS["Items"]) for r in item_rows)
+
+    # Monthly: 12 months ending with this one; expenses include the recurring rent.
+    monthly = fake.written["Monthly!A2"]
+    assert len(monthly) == 12
+    assert monthly[-1][0] == clock.month_key(clock.today())
+    assert monthly[-1][2:5] == [537 + 129, 2, 333]
+    assert monthly[-1][6] >= 25000
 
     with session_scope(sheets_enabled) as session:
         assert all(o.synced for o in session.scalars(select(Order)))
         assert all(e.synced for e in session.scalars(select(Expense)))
-        assert get_settings(session)["sheets_last_sync"] == result.at
+        assert _last_sync(session) == result.at
 
     # Second run: nothing new to append, token reused from the cache.
     fake.appended.clear()
@@ -297,12 +318,12 @@ def test_google_errors_raise_and_leave_rows_unsynced(
         run(_sync(sheets_enabled, fake))
     with session_scope(sheets_enabled) as session:
         assert not any(o.synced for o in session.scalars(select(Order)))
-        assert get_settings(session)["sheets_last_sync"] == ""
+        assert _last_sync(session) == ""
 
 
 def test_missing_credentials_file(sheets_enabled: sessionmaker[Session], tmp_path: Path) -> None:
     with session_scope(sheets_enabled) as session:
-        set_settings(session, {"sheets_credentials_path": str(tmp_path / "nope.json")})
+        registry.save_settings(session, "google_sheets", {"credentials_path": str(tmp_path / "nope.json")})
     with pytest.raises(sheets.SheetsError, match="Credentials file not found"):
         run(_sync(sheets_enabled, FakeGoogle()))
 

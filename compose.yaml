@@ -12,7 +12,7 @@ services:
       WB_SYNC_INTERVAL_SECONDS: "300"
     volumes:
       - pos-data:/data       # sales, menu, expenses (SQLite). Survives rebuilds and updates.
-      - ./secrets:/secrets:ro  # put the Google service-account key here, then set its path to /secrets/<file>.json in Settings
+      - ./secrets:/secrets:ro  # put the Google service-account key here, then set its path to /secrets/<file>.json in Admin → Modules → Google Sheet sync
 
 volumes:
   pos-data:

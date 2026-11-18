@@ -26,9 +26,9 @@ def create_order(body: OrderCreate, db: DB) -> OrderOut:
     """Create a paid bill and return it with its `bill_no` (`WB<yymmdd>-<nnn>`, numbered per day).
 
     Prices come from the menu, never from the request. Totals, in rupees:
-    `subtotal` = sum of price x qty; `discount` = rupees off before GST (capped at the
-    subtotal); `tax` = (subtotal - discount) x GST rate / 100 (`gst_rate` setting, 0 by default);
-    `total` = subtotal - discount + tax. `created_at` is the shop-local
+    `subtotal` = sum of price x qty; `discount` = rupees off before GST (rejected with 400 when
+    discounts are not allowed or exceed the allowed cap); `tax` = (subtotal - discount) x GST rate
+    / 100 (0 when GST is off); `total` = subtotal - discount + tax. `created_at` is the shop-local
     time now (`YYYY-MM-DD HH:MM:SS`). The bill is queued for the next Google Sheet sync.
     """
     try:

@@ -1,21 +1,22 @@
-"""Settings, Google Sheet sync, backup, and the phase 2 WhatsApp placeholder."""
+"""Health, Google Sheet sync, backup, and the phase 2 WhatsApp placeholder.
+
+Shop settings moved to feature modules: see ``api/admin.py`` (`GET /api/config`, `/api/admin/modules`).
+"""
 
 import os
 import sqlite3
 import tempfile
 from pathlib import Path
-from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 from starlette.background import BackgroundTask
 
 from waffle_pos import __version__, clock
-from waffle_pos.api.deps import DB, SessionFactory, bad_request, errors
+from waffle_pos.api.deps import ADMIN_401, DB, AdminOnly, SessionFactory, bad_request, errors
 from waffle_pos.integrations import sheets
 from waffle_pos.schemas import SyncResult
-from waffle_pos.services.settings import EDITABLE, get_settings, set_settings
 
 router = APIRouter(prefix="/api", tags=["system"])
 
@@ -27,49 +28,13 @@ def health(db: DB) -> dict[str, str]:
     return {"status": "ok", "version": __version__}
 
 
-SETTINGS_DOC = """Settings are a flat object of strings:
-
-- `shop_name`, `shop_address`, `shop_phone`, `gstin`: printed on bills.
-- `gst_rate`: GST percent added to every new bill, e.g. `"5"` (`"0"` = no GST).
-- `default_target`: monthly revenue target in rupees for months without their own target.
-- `open_hour`, `close_hour`: shop hours (0-23), the range of the hourly chart.
-- `sheets_enabled` (`"1"` on, `"0"` off), `sheets_spreadsheet_id`, `sheets_credentials_path`:
-  Google Sheet sync.
-- `sheets_last_sync`: read-only, shop-local time of the last successful sync (`YYYY-MM-DD HH:MM:SS`).
-"""
-
-
-@router.get("/settings", summary="Read shop settings", description=SETTINGS_DOC)
-def read_settings(db: DB) -> dict[str, str]:
-    return get_settings(db)
-
-
-@router.put(
-    "/settings",
-    summary="Change shop settings",
-    description='Send only the keys to change. Values are stored as text (`5` becomes `"5"`, '
-    '`null` becomes `""`; send `"1"`/`"0"` for on/off, not `true`/`false`). Unknown keys and '
-    "`sheets_last_sync` are ignored. Returns every setting after the change. A new `gst_rate` "
-    "applies to bills created from now on.\n\n" + SETTINGS_DOC,
-    responses=errors({422: "The body is not a JSON object."}),
-)
-def update_settings(
-    body: Annotated[
-        dict[str, Any],
-        Body(openapi_examples={"gst": {"summary": "Charge 5% GST", "value": {"gst_rate": "5"}}}),
-    ],
-    db: DB,
-) -> dict[str, str]:
-    set_settings(db, {k: "" if v is None else str(v) for k, v in body.items() if k in EDITABLE})
-    return get_settings(db)
-
-
 @router.post("/sync", summary="Sync to the Google Sheet now")
 async def sync(factory: SessionFactory) -> SyncResult:
     """Push bills and expenses not yet synced (up to 500 bills per run) to the Google Sheet and
-    rewrite its Daily tab (last 90 days). The same sync runs in the background every few minutes.
+    rewrite its Daily, Items and Monthly summary tabs. The same sync runs in the background on the
+    interval set in Admin → Modules → Google Sheet sync (5 minutes by default).
 
-    Always answers 200: check `ok`. `skipped: true` means sync is turned off in settings;
+    Always answers 200: check `ok`. `skipped: true` means sync is switched off in the admin dashboard;
     `ok: false` without `skipped` means it is not configured or failed (`message` says why);
     `at` is the shop-local time of a successful sync.
     """
@@ -83,7 +48,11 @@ async def sync(factory: SessionFactory) -> SyncResult:
     "/backup",
     summary="Download a database backup",
     response_class=FileResponse,
-    responses={200: {"content": {"application/octet-stream": {}}, "description": "The SQLite file."}},
+    dependencies=[AdminOnly],
+    responses={
+        200: {"content": {"application/octet-stream": {}}, "description": "The SQLite file."},
+        **errors({401: ADMIN_401}),
+    },
 )
 def backup(request: Request) -> FileResponse:
     """A consistent copy of the live database, made with SQLite's online backup API, downloaded as

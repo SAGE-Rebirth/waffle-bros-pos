@@ -190,6 +190,19 @@
         "title": "ExpenseOut",
         "type": "object"
       },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "IdOut": {
         "properties": {
           "id": {
@@ -339,6 +352,44 @@
         "title": "ItemOut",
         "type": "object"
       },
+      "LoginIn": {
+        "properties": {
+          "pin": {
+            "maxLength": 8,
+            "minLength": 1,
+            "title": "Pin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pin"
+        ],
+        "title": "LoginIn",
+        "type": "object"
+      },
+      "LoginOut": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "must_change_pin": {
+            "title": "Must Change Pin",
+            "type": "boolean"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at",
+          "must_change_pin"
+        ],
+        "title": "LoginOut",
+        "type": "object"
+      },
       "MenuOut": {
         "properties": {
           "categories": {
@@ -361,6 +412,93 @@
           "items"
         ],
         "title": "MenuOut",
+        "type": "object"
+      },
+      "ModuleUpdate": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settings"
+          }
+        },
+        "title": "ModuleUpdate",
+        "type": "object"
+      },
+      "ModuleView": {
+        "properties": {
+          "core": {
+            "title": "Core",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "readonly_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Readonly Fields",
+            "type": "array"
+          },
+          "settings_schema": {
+            "additionalProperties": true,
+            "title": "Settings Schema",
+            "type": "object"
+          },
+          "values": {
+            "additionalProperties": true,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "description",
+          "icon",
+          "core",
+          "enabled",
+          "settings_schema",
+          "values",
+          "readonly_fields"
+        ],
+        "title": "ModuleView",
         "type": "object"
       },
       "MonthExpensesOut": {
@@ -706,6 +844,37 @@
         "title": "OrderOut",
         "type": "object"
       },
+      "PinIn": {
+        "properties": {
+          "new_pin": {
+            "title": "New Pin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "new_pin"
+        ],
+        "title": "PinIn",
+        "type": "object"
+      },
+      "ReorderIn": {
+        "properties": {
+          "ids": {
+            "description": "Ids in the new display order.",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "ReorderIn",
+        "type": "object"
+      },
       "SyncResult": {
         "properties": {
           "at": {
@@ -760,26 +929,329 @@
         ],
         "title": "TargetIn",
         "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
       }
     }
   },
   "info": {
-    "description": "Point-of-sale and revenue-target API for the Waffle Bros shop in Bhopal. The React screens use exactly this API, so a script can do anything the cashier can.\n\n- **Base URL:** `http://localhost:4000` (or the shop computer's address on the Wi-Fi).\n- **Money:** rupees, as JSON numbers (`199.0` is Rs 199).\n- **Times:** shop-local (Asia/Kolkata by default); timestamps are `YYYY-MM-DD HH:MM:SS`, dates `YYYY-MM-DD`, months `YYYY-MM`.\n- **Errors:** JSON `{\"error\": \"...\"}` with status 400 (bad request), 404 (not found), 422 (validation, `field: reason`) or 501 (not built yet).\n- **Auth:** none yet; keep the POS on the shop network. An admin PIN is planned.\n\nPractical guide with real examples: `docs/API.md` in the repository.",
+    "description": "Point-of-sale and revenue-target API for the Waffle Bros shop in Bhopal. The React screens use exactly this API, so a script can do anything the cashier can.\n\n- **Base URL:** `http://localhost:4000` (or the shop computer's address on the Wi-Fi).\n- **Money:** rupees, as JSON numbers (`199.0` is Rs 199).\n- **Times:** shop-local (Asia/Kolkata by default); timestamps are `YYYY-MM-DD HH:MM:SS`, dates `YYYY-MM-DD`, months `YYYY-MM`.\n- **Errors:** JSON `{\"error\": \"...\"}` with status 400 (bad request), 404 (not found), 422 (validation, `field: reason`) or 501 (not built yet).\n- **Auth:** reading and billing are open on the shop network. Menu changes, module settings and backups need the admin PIN: `POST /api/admin/login` returns a token to send as `Authorization: Bearer <token>`.\n\nPractical guide with real examples: `docs/API.md` in the repository.",
     "title": "Waffle Bros POS",
     "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/login": {
+      "post": {
+        "description": "Returns a bearer token for the admin endpoints. The default PIN is 1234 until changed.",
+        "operationId": "login_api_admin_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign in to the admin dashboard with the PIN",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/modules": {
+      "get": {
+        "description": "Each module with its JSON Schema (used to draw the form), current values and on/off state.",
+        "operationId": "list_modules_api_admin_modules_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModuleView"
+                  },
+                  "title": "Response List Modules Api Admin Modules Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List feature modules with settings forms",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/modules/{key}": {
+      "put": {
+        "description": "Partial update: only the settings keys you send change. Core modules can't be switched off.",
+        "operationId": "update_module_api_admin_modules__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModuleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Switch a module on/off or change its settings",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/pin": {
+      "post": {
+        "description": "Sets a new 4-8 digit PIN. Other signed-in admin sessions are signed out; a fresh token is returned.",
+        "operationId": "change_pin_api_admin_pin_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change the admin PIN",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/backup": {
       "get": {
         "description": "A consistent copy of the live database, made with SQLite's online backup API, downloaded as\n`waffle-bros-backup-YYYY-MM-DD.db`. Safe while the shop is billing. To restore, stop the POS\nand put the file in place of `waffle-bros.db` in the data folder (`WB_DATA_DIR`).",
         "operationId": "backup_api_backup_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/octet-stream": {}
             },
             "description": "The SQLite file."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Download a database backup",
@@ -792,6 +1264,24 @@
       "post": {
         "description": "Create a category at the end of the list. Returns the new category's `id`.",
         "operationId": "add_category_api_categories_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -823,6 +1313,16 @@
             },
             "description": "That category already exists (case-insensitive)."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -837,6 +1337,300 @@
         "summary": "Add a menu category",
         "tags": [
           "menu"
+        ]
+      }
+    },
+    "/api/categories/reorder": {
+      "post": {
+        "description": "Categories in `ids` come first, in that order (the billing sidebar order); any not listed follow.",
+        "operationId": "reorder_categories_api_categories_reorder_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "An id doesn't exist."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Set the order of menu categories",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/categories/{category_id}": {
+      "delete": {
+        "description": "Delete a category that has no items (hidden items count). Move or remove its items first.",
+        "operationId": "delete_category_api_categories__category_id__delete",
+        "parameters": [
+          {
+            "description": "The category's numeric `id`.",
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "description": "The category's numeric `id`.",
+              "title": "Category Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The category still has items."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such category."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete an empty menu category",
+        "tags": [
+          "menu"
+        ]
+      },
+      "put": {
+        "description": "Rename a category. Past bills keep the category name they were billed under.",
+        "operationId": "rename_category_api_categories__category_id__put",
+        "parameters": [
+          {
+            "description": "The category's numeric `id`.",
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "description": "The category's numeric `id`.",
+              "title": "Category Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Another category has that name."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such category."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Rename a menu category",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/config": {
+      "get": {
+        "description": "Every module's on/off state and its non-secret settings. The POS screens load this at start-up.",
+        "operationId": "public_config_api_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Public Config Api Config Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "POS configuration for the screens",
+        "tags": [
+          "admin"
         ]
       }
     },
@@ -1147,8 +1941,26 @@
     },
     "/api/items": {
       "post": {
-        "description": "Create an item. `code` is upper-cased; `price` and `cost` are rupees (cost is optional and\nonly feeds the margin numbers). Returns the new item's `id`.\n\nChanging the GST rate is a setting (`PUT /api/settings`), not an item field.",
+        "description": "Create an item. `code` is upper-cased; `price` and `cost` are rupees (cost is optional and\nonly feeds the margin numbers). Returns the new item's `id`.\n\nGST is not an item field: it's the `gst` module (`PUT /api/admin/modules/gst`).",
         "operationId": "create_item_api_items_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1180,6 +1992,16 @@
             },
             "description": "The `code` is already used, or `category_id` does not exist."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1192,6 +2014,86 @@
           }
         },
         "summary": "Add a menu item",
+        "tags": [
+          "menu"
+        ]
+      }
+    },
+    "/api/items/reorder": {
+      "post": {
+        "description": "Items in `ids` are placed first, in that order. Send one category's items to reorder that category.",
+        "operationId": "reorder_items_api_items_reorder_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "An id doesn't exist."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Set the order of menu items",
         "tags": [
           "menu"
         ]
@@ -1267,6 +2169,22 @@
               "title": "Item Id",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -1279,6 +2197,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
           },
           "422": {
             "content": {
@@ -1309,6 +2237,22 @@
               "description": "The item's numeric `id` (not its short code like `W01`).",
               "title": "Item Id",
               "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -1342,6 +2286,16 @@
               }
             },
             "description": "The `code` is already used by another item, or `category_id` does not exist."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
           },
           "404": {
             "content": {
@@ -1449,7 +2403,7 @@
         ]
       },
       "post": {
-        "description": "Create a paid bill and return it with its `bill_no` (`WB<yymmdd>-<nnn>`, numbered per day).\n\nPrices come from the menu, never from the request. Totals, in rupees:\n`subtotal` = sum of price x qty; `discount` = rupees off before GST (capped at the\nsubtotal); `tax` = (subtotal - discount) x GST rate / 100 (`gst_rate` setting, 0 by default);\n`total` = subtotal - discount + tax. `created_at` is the shop-local\ntime now (`YYYY-MM-DD HH:MM:SS`). The bill is queued for the next Google Sheet sync.",
+        "description": "Create a paid bill and return it with its `bill_no` (`WB<yymmdd>-<nnn>`, numbered per day).\n\nPrices come from the menu, never from the request. Totals, in rupees:\n`subtotal` = sum of price x qty; `discount` = rupees off before GST (rejected with 400 when\ndiscounts are not allowed or exceed the allowed cap); `tax` = (subtotal - discount) x GST rate\n/ 100 (0 when GST is off); `total` = subtotal - discount + tax. `created_at` is the shop-local\ntime now (`YYYY-MM-DD HH:MM:SS`). The bill is queued for the next Google Sheet sync.",
         "operationId": "create_order_api_orders_post",
         "requestBody": {
           "content": {
@@ -1609,89 +2563,9 @@
         ]
       }
     },
-    "/api/settings": {
-      "get": {
-        "description": "Settings are a flat object of strings:\n\n- `shop_name`, `shop_address`, `shop_phone`, `gstin`: printed on bills.\n- `gst_rate`: GST percent added to every new bill, e.g. `\"5\"` (`\"0\"` = no GST).\n- `default_target`: monthly revenue target in rupees for months without their own target.\n- `open_hour`, `close_hour`: shop hours (0-23), the range of the hourly chart.\n- `sheets_enabled` (`\"1\"` on, `\"0\"` off), `sheets_spreadsheet_id`, `sheets_credentials_path`:\n  Google Sheet sync.\n- `sheets_last_sync`: read-only, shop-local time of the last successful sync (`YYYY-MM-DD HH:MM:SS`).",
-        "operationId": "read_settings_api_settings_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Read Settings Api Settings Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Read shop settings",
-        "tags": [
-          "system"
-        ]
-      },
-      "put": {
-        "description": "Send only the keys to change. Values are stored as text (`5` becomes `\"5\"`, `null` becomes `\"\"`; send `\"1\"`/`\"0\"` for on/off, not `true`/`false`). Unknown keys and `sheets_last_sync` are ignored. Returns every setting after the change. A new `gst_rate` applies to bills created from now on.\n\nSettings are a flat object of strings:\n\n- `shop_name`, `shop_address`, `shop_phone`, `gstin`: printed on bills.\n- `gst_rate`: GST percent added to every new bill, e.g. `\"5\"` (`\"0\"` = no GST).\n- `default_target`: monthly revenue target in rupees for months without their own target.\n- `open_hour`, `close_hour`: shop hours (0-23), the range of the hourly chart.\n- `sheets_enabled` (`\"1\"` on, `\"0\"` off), `sheets_spreadsheet_id`, `sheets_credentials_path`:\n  Google Sheet sync.\n- `sheets_last_sync`: read-only, shop-local time of the last successful sync (`YYYY-MM-DD HH:MM:SS`).",
-        "operationId": "update_settings_api_settings_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "examples": {
-                "gst": {
-                  "summary": "Charge 5% GST",
-                  "value": {
-                    "gst_rate": "5"
-                  }
-                }
-              },
-              "schema": {
-                "additionalProperties": true,
-                "title": "Body",
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Update Settings Api Settings Put",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            },
-            "description": "The body is not a JSON object."
-          }
-        },
-        "summary": "Change shop settings",
-        "tags": [
-          "system"
-        ]
-      }
-    },
     "/api/sync": {
       "post": {
-        "description": "Push bills and expenses not yet synced (up to 500 bills per run) to the Google Sheet and\nrewrite its Daily tab (last 90 days). The same sync runs in the background every few minutes.\n\nAlways answers 200: check `ok`. `skipped: true` means sync is turned off in settings;\n`ok: false` without `skipped` means it is not configured or failed (`message` says why);\n`at` is the shop-local time of a successful sync.",
+        "description": "Push bills and expenses not yet synced (up to 500 bills per run) to the Google Sheet and\nrewrite its Daily, Items and Monthly summary tabs. The same sync runs in the background on the\ninterval set in Admin → Modules → Google Sheet sync (5 minutes by default).\n\nAlways answers 200: check `ok`. `skipped: true` means sync is switched off in the admin dashboard;\n`ok: false` without `skipped` means it is not configured or failed (`message` says why);\n`at` is the shop-local time of a successful sync.",
         "operationId": "sync_api_sync_post",
         "responses": {
           "200": {
@@ -1795,8 +2669,12 @@
       "name": "finance"
     },
     {
-      "description": "Health, shop settings, Google Sheet sync, backup, webhooks.",
+      "description": "Health, Google Sheet sync, backup, webhooks.",
       "name": "system"
+    },
+    {
+      "description": "PIN sign-in, feature modules and their settings, and the POS config.",
+      "name": "admin"
     }
   ]
 }

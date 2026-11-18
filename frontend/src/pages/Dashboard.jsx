@@ -3,13 +3,13 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ComposedChart, Line, Area, ReferenceLine,
 } from 'recharts';
 import { api, inr, inrShort, today, thisMonth, SERIES } from '../api.js';
+import { useConfig } from '../config.jsx';
 
 const HONEY = SERIES[0];
 const PURPLE = SERIES[1];
 const CHOC = '#4A2C1A';
 const GRID = '#f1e8d8';
 const AXIS = { fontSize: 12, fill: '#9a8879' };
-const EXPENSE_CATS = ['rent', 'salary', 'ingredients', 'electricity', 'packaging', 'marketing', 'maintenance', 'other'];
 const ICON = { good: '✅', warn: '⚠️', info: '💡' };
 
 function Ring({ pct, expected }) {
@@ -239,13 +239,16 @@ function Items({ initial }) {
 }
 
 function Expenses({ month, onChange, notify }) {
+  const { settings } = useConfig();
+  const cats = settings('targets').expense_categories?.length ? settings('targets').expense_categories : ['other'];
   const [data, setData] = useState(null);
-  const [f, setF] = useState({ category: 'ingredients', amount: '', date: today(), note: '', recurring: false });
+  const [f, setF] = useState({ category: '', amount: '', date: today(), note: '', recurring: false });
   const load = useCallback(() => api.get(`/api/expenses?month=${month}`).then(setData), [month]);
   useEffect(() => { load(); }, [load]);
+  const category = cats.includes(f.category) ? f.category : cats.includes('ingredients') ? 'ingredients' : cats[0];
   const add = async () => {
     try {
-      await api.post('/api/expenses', { ...f, amount: Number(f.amount) });
+      await api.post('/api/expenses', { ...f, category, amount: Number(f.amount) });
       setF({ ...f, amount: '', note: '', recurring: false });
       load(); onChange(); notify('Expense added');
     } catch (e) { notify(e.message); }
@@ -256,8 +259,8 @@ function Expenses({ month, onChange, notify }) {
     <div className="card panel span-5">
       <div className="panel-head"><h3>Expenses this month</h3>{data && <b className="num">{inr(data.total)}</b>}</div>
       <div className="exp-form">
-        <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
-          {EXPENSE_CATS.map((c) => <option key={c} value={c}>{c[0].toUpperCase() + c.slice(1)}</option>)}
+        <select value={category} onChange={(e) => setF({ ...f, category: e.target.value })}>
+          {cats.map((c) => <option key={c} value={c}>{c[0].toUpperCase() + c.slice(1)}</option>)}
         </select>
         <input placeholder="Amount ₹" inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })} />
         <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />

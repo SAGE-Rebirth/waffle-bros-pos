@@ -8,9 +8,9 @@ from fastapi import APIRouter, Path, Query
 from waffle_pos import clock
 from waffle_pos.api.deps import DB, INVALID, bad_request, errors
 from waffle_pos.db.models import Expense, Target
+from waffle_pos.modules.registry import save_settings
 from waffle_pos.schemas import ExpenseIn, IdOut, MonthExpensesOut, OkOut, TargetIn
 from waffle_pos.services import analytics
-from waffle_pos.services.settings import set_settings
 
 router = APIRouter(prefix="/api", tags=["finance"])
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -38,7 +38,7 @@ def set_target(
     else:
         row.amount = body.amount
     if body.makeDefault:
-        set_settings(db, {"default_target": f"{body.amount:g}"})
+        save_settings(db, "targets", {"default_target": body.amount})
     return OkOut()
 
 
