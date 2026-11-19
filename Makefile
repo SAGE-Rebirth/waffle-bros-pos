@@ -1,122 +1,60 @@
-# Waffle Bros POS: everyday commands.  Run `make` (or `make help`) to list them.
+# Waffle Bros POS.  Run `make` to list the commands.
 #
-#   make start      build everything and run the POS on http://localhost:4000
-#   make dev        backend with auto-reload + screens with hot reload on http://localhost:5173
-#   make up         run it in Docker instead (data kept in the pos-data volume)
-#   make check      everything CI runs: lint, types, tests, OpenAPI drift, screens build
+#   web  nginx serving the screens on http://localhost:4000, forwarding /api to ...
+#   api  the FastAPI backend, with the SQLite database in the pos-data volume.
 
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-PORT     ?= 4000
-DATA_DIR ?= data
-UV       ?= uv
-NPM      ?= npm
-FRONTEND := frontend
-BACKUPS  ?= backups
+COMPOSE     := docker compose
+DEV_COMPOSE := docker compose -p waffle-bros-dev -f compose.yaml -f compose.dev.yaml
+BACKUPS     ?= backups
 
-export WB_PORT := $(PORT)
+# Run inside the api container: copy the live database safely and print it to stdout.
+BACKUP_PY := import sqlite3, sys, tempfile; \
+  t = tempfile.NamedTemporaryFile(suffix='.db'); \
+  s = sqlite3.connect('/data/waffle-bros.db'); d = sqlite3.connect(t.name); \
+  s.backup(d); d.close(); s.close(); \
+  sys.stdout.buffer.write(open(t.name, 'rb').read())
 
-.PHONY: help install install-backend install-frontend start run dev backend frontend build \
-        test lint format typecheck openapi check pre-commit demo run-demo \
-        up down restart logs ps backup pin-reset update clean
+PIN_RESET_PY := import sqlite3; c = sqlite3.connect('/data/waffle-bros.db'); \
+  n = c.execute(\"DELETE FROM settings WHERE key = 'module:admin'\").rowcount; c.commit(); \
+  print('PIN reset to 1234' if n else 'PIN was already the default')
+
+.PHONY: help up down logs dev check backup pin-reset
 
 help: ## List the commands
-	@awk 'BEGIN {FS = ":.*##"; printf "\nWaffle Bros POS\n\n"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[1mmake %-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nWaffle Bros POS\n\n"} /^[a-z-]+:.*##/ { printf "  \033[1mmake %-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo
 
-# ---------- Setup ----------
-install: install-backend install-frontend ## Install Python (uv) and screen (npm) dependencies
+up: ## Build and start the POS (web + api) on http://localhost:4000
+	$(COMPOSE) up -d --build --wait
+	@echo "POS is running on http://localhost:4000"
 
-install-backend:
-	$(UV) sync
+down: ## Stop the POS (your data stays in the pos-data volume)
+	$(COMPOSE) down
 
-install-frontend:
-	cd $(FRONTEND) && $(NPM) ci
+logs: ## Follow the logs of both services
+	$(COMPOSE) logs -f --tail=100
 
-# ---------- Run ----------
-start: install build run ## Install, build the screens and run the POS (one command)
+dev: ## Live-reload copy: screens :5173, API docs :8000/docs, own test data. Ctrl+C stops
+	$(DEV_COMPOSE) up --build
 
-run: ## Run the POS on http://localhost:4000 (screens must be built)
-	WB_DATA_DIR=$(DATA_DIR) $(UV) run waffle-pos
+check: ## What CI checks: lint, types, tests, OpenAPI drift, screens build (needs uv + npm)
+	uv run ruff check
+	uv run ruff format --check
+	uv run mypy
+	uv run pytest
+	uv run python -m waffle_pos.openapi --check
+	cd frontend && { [ -d node_modules ] || npm ci; } && npm run build
 
-dev: ## Backend (auto-reload, :4000) + screens with hot reload (:5173) together; Ctrl+C stops both
-	@trap 'kill 0' EXIT INT TERM; \
-	  WB_DATA_DIR=$(DATA_DIR) $(UV) run uvicorn --factory waffle_pos.app:create_app --reload \
-	    --reload-dir src --host 0.0.0.0 --port $(PORT) & \
-	  (cd $(FRONTEND) && $(NPM) run dev) & \
-	  wait
-
-backend: ## Only the backend with auto-reload
-	WB_DATA_DIR=$(DATA_DIR) $(UV) run uvicorn --factory waffle_pos.app:create_app --reload \
-	  --reload-dir src --host 0.0.0.0 --port $(PORT)
-
-frontend: ## Only the screens with hot reload on :5173 (API calls go to :4000)
-	cd $(FRONTEND) && $(NPM) run dev
-
-build: ## Build the screens into frontend/dist
-	cd $(FRONTEND) && $(NPM) run build
-
-demo: ## Create demo data in data-demo/ (never touches real data)
-	$(UV) run python -m waffle_pos.demo
-
-run-demo: demo ## Run the POS on the demo data
-	WB_DATA_DIR=data-demo $(UV) run waffle-pos
-
-# ---------- Quality ----------
-lint: ## ruff lint + format check
-	$(UV) run ruff check
-	$(UV) run ruff format --check
-
-format: ## Auto-fix lint issues and format the code
-	$(UV) run ruff check --fix
-	$(UV) run ruff format
-
-typecheck: ## mypy --strict
-	$(UV) run mypy
-
-test: ## pytest with coverage
-	$(UV) run pytest
-
-openapi: ## Regenerate docs/openapi.json after API changes
-	$(UV) run python -m waffle_pos.openapi
-
-check: lint typecheck test build ## Everything CI runs (backend checks + screens build)
-	$(UV) run python -m waffle_pos.openapi --check
-
-pre-commit: ## Run the pre-commit hooks on every file
-	$(UV) run pre-commit run --all-files
-
-# ---------- Docker ----------
-up: ## Build and start in Docker (http://localhost:4000)
-	docker compose up -d --build
-
-down: ## Stop the Docker container (data stays in the pos-data volume)
-	docker compose down
-
-restart: ## Restart the Docker container
-	docker compose restart
-
-logs: ## Follow the Docker logs
-	docker compose logs -f --tail=100
-
-ps: ## Show the container and its health
-	docker compose ps
-
-# ---------- Data ----------
-backup: ## Copy the local database to backups/ (safe while the POS is running)
+backup: ## Save a copy of the live database to backups/ (safe while the POS is running)
 	@mkdir -p $(BACKUPS)
-	@$(UV) run python -c "import sqlite3, sys; src = sqlite3.connect(sys.argv[1]); dst = sqlite3.connect(sys.argv[2]); src.backup(dst); dst.close(); src.close(); print('Saved', sys.argv[2])" \
-	  "$(DATA_DIR)/waffle-bros.db" "$(BACKUPS)/waffle-bros-$$(date +%Y%m%d-%H%M%S).db"
+	@f="$(BACKUPS)/waffle-bros-$$(date +%Y%m%d-%H%M%S).db"; \
+	  if $(COMPOSE) exec -T api python -c "$(BACKUP_PY)" > "$$f"; then echo "Saved $$f"; \
+	  else rm -f -- "$$f"; echo "Backup failed. Is the POS running? (make up)"; exit 1; fi
 
-pin-reset: ## Forget the admin PIN (it goes back to 1234); stop the POS first
-	@$(UV) run python -c "import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); n = c.execute(\"DELETE FROM settings WHERE key = 'module:admin'\").rowcount; c.commit(); print('PIN reset to 1234' if n else 'PIN was already the default')" \
-	  "$(DATA_DIR)/waffle-bros.db"
-
-update: ## Pull the latest code from GitHub and reinstall
-	git pull --ff-only
-	$(MAKE) install build
-
-clean: ## Remove build output and caches (keeps your data)
-	rm -rf $(FRONTEND)/dist .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage
-	find . -name __pycache__ -type d -prune -not -path './.venv/*' -exec rm -rf {} +
+pin-reset: ## Forget the admin PIN (it goes back to 1234). Restarts the api briefly
+	$(COMPOSE) stop api
+	@$(COMPOSE) run --rm --no-deps api python -c "$(PIN_RESET_PY)"
+	$(COMPOSE) up -d --wait api

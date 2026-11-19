@@ -13,13 +13,14 @@ A locally hosted point-of-sale and revenue-target dashboard for one waffle shop 
   - `security.py`: middlewares `HostCheck` (DNS-rebinding defence: IPs, single-word names, `*.local`, `WB_ALLOWED_HOSTS`), `BodyLimit` (413 over `WB_MAX_BODY_BYTES`, default 1,000,000) and `SecurityHeaders` (CSP, `X-Frame-Options: DENY`, `nosniff`, `no-store` on `/api`).
   - `schemas.py`: Pydantic models. **JSON field names are a contract with the React screens**; don't rename them without updating `frontend/src`. Request bodies subclass `In` (`allow_inf_nan=False`); amounts are capped at `MAX_MONEY` (₹1 crore), notes at `MAX_NOTE` (300), images at `MAX_IMAGE` (200,000 chars; `data:image/...` or a same-server path only).
   - `clock.py`: all times are shop-local naive datetimes (`WB_TIMEZONE`, default Asia/Kolkata). Always use `clock.now()` / `clock.today()`, never `datetime.now()`.
-- **Frontend:** React + Vite + Recharts in `frontend/`. FastAPI serves the built `frontend/dist`. Pages: `Billing`, `Dashboard`, `DayEnd`, `Admin` (at `#admin`: PIN pad; with the default PIN only the change-PIN card; then tabs Menu / Modules / Security / Backup). Counter actions that need the PIN (Day End cancel, Dashboard target and expenses) use `pinApi` from `api.js`, which opens `components/PinPrompt.jsx` and retries. The POS screens read `GET /api/config` (`frontend/src/config.jsx`) for theme colours, shop name, payment methods, order types, the GST line, the discount cap and the bill footer.
-- **Data:** one SQLite file, `data/waffle-bros.db` (or `/data` in Docker). Settings the owner edits live in the `settings` table as module rows (see `modules/`); process config is `WB_*` env vars (`config.py`).
+- **Frontend:** React + Vite + Recharts in `frontend/`. In Docker the `web` service (nginx, `frontend/Dockerfile` + `frontend/nginx.conf`) serves the built screens and proxies `/api`, `/docs`, `/openapi.json` to `api`; outside Docker FastAPI serves `frontend/dist` if it exists. Pages: `Billing`, `Dashboard`, `DayEnd`, `Admin` (at `#admin`: PIN pad; with the default PIN only the change-PIN card; then tabs Menu / Modules / Security / Backup). Counter actions that need the PIN (Day End cancel, Dashboard target and expenses) use `pinApi` from `api.js`, which opens `components/PinPrompt.jsx` and retries. The POS screens read `GET /api/config` (`frontend/src/config.jsx`) for theme colours, shop name, payment methods, order types, the GST line, the discount cap and the bill footer.
+- **Docker:** two compose services. `api` (root `Dockerfile`, FastAPI only, not published, `pos-data` volume at `/data`) and `web` (nginx, published `4000:8080`). nginx passes `Host` through and overwrites `X-Forwarded-For`; uvicorn trusts it from `WB_FORWARDED_ALLOW_IPS` (compose: `*`) so the PIN throttle is per tablet. `compose.dev.yaml` (`make dev`, project `waffle-bros-dev`) adds uvicorn `--reload` on mounted `src/` (:8000) and the Vite dev server (:5173) with its own `pos-dev-data` volume. Docker is the only supported deployment.
+- **Data:** one SQLite file, `data/waffle-bros.db` (or `/data` in the `api` container). Settings the owner edits live in the `settings` table as module rows (see `modules/`); process config is `WB_*` env vars (`config.py`).
 - **Docs:** `docs/API.md` (API reference, written for humans and Claude), `docs/openapi.json` (generated), `docs/ARCHITECTURE.md` (design), `docs/IMPLEMENTATION.md` (hands-on guide and recipes), `docs/SECURITY.md` (threat model, controls, review findings). Swagger UI runs at `/docs`.
 
 ## Commands
 
-`make help` lists the Makefile targets (`make dev`, `make check`, `make openapi`, `make backup`, `make pin-reset`, ...). Underneath:
+The Makefile has exactly seven targets, on purpose (the owner asked for a small one): `make up`, `down`, `logs`, `dev`, `check`, `backup`, `pin-reset`. Don't add more without asking; use the plain commands. Underneath:
 
 ```bash
 uv sync                                   # .venv with dev tools
@@ -31,7 +32,7 @@ uv run python -m waffle_pos.openapi       # regenerate docs/openapi.json after A
 uv run python -m waffle_pos.demo          # demo data in data-demo/
 WB_DATA_DIR=data-demo uv run waffle-pos   # run on demo data, http://localhost:4000
 cd frontend && npm ci && npm run build    # build screens (npm run dev for hot reload on :5173)
-docker compose up -d --build              # production-style run, data in the pos-data volume
+docker compose up -d --build --wait       # make up: web on :4000 + api, data in the pos-data volume
 ```
 
 ## Making changes
@@ -44,7 +45,7 @@ docker compose up -d --build              # production-style run, data in the po
 - **Quality gates:** ruff, `mypy --strict` and pytest must pass, and new logic needs tests. Run `uv run pre-commit run --all-files` before pushing.
 - **Admin-only endpoints:** add `dependencies=[AdminOnly]` and `ADMIN_401` plus `ADMIN_403` in `responses=errors(...)`, and mark it **(Admin)** in `docs/API.md`. If a counter screen calls it, use `pinApi` there. Billing, looking up bills and reading reports stay open so the counter works without a PIN; anything that changes money figures (cancel, targets, expenses) needs it. See `docs/SECURITY.md`.
 - **Input limits:** every new string field gets a `max_length`, every amount `le=MAX_MONEY`, every list a `max_length`; request bodies subclass `schemas.In`.
-- **Workflow:** branch, then PR to `main`. CI (`.github/workflows/ci.yml`) runs the backend checks, the frontend build and the Docker build.
+- **Workflow:** branch, then PR to `main`. CI (`.github/workflows/ci.yml`) runs the backend checks, the frontend build, and builds both images and smoke-tests them through `web`.
 
 ## Adding a module
 

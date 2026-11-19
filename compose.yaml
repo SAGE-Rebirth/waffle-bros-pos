@@ -1,21 +1,44 @@
-# docker compose up -d --build   ->  http://localhost:4000
+# make up  (docker compose up -d --build)  ->  http://localhost:4000
+#
+#   web  nginx: the screens, and the door to the API. Published on :4000.
+#   api  FastAPI + SQLite. Only reachable from `web`, never from outside Docker.
 services:
-  pos:
+  api:
     build: .
-    image: waffle-bros-pos:latest
-    container_name: waffle-bros-pos
+    image: waffle-bros-pos-api:latest
     restart: unless-stopped
-    ports:
-      - "4000:4000"          # reachable from tablets on the shop Wi-Fi too. Never port-forward this
-                             # on the router. To keep it on this PC only: "127.0.0.1:4000:4000"
     environment:
       WB_TIMEZONE: Asia/Kolkata
+      # Only `web` can reach this container, so trust the client address it passes on
+      # (the PIN lockout counts wrong PINs per tablet).
+      WB_FORWARDED_ALLOW_IPS: "*"
     volumes:
       - pos-data:/data       # sales, menu, expenses (SQLite). Survives rebuilds and updates.
+    expose:
+      - "4000"
     # Hardening: read-only image, no extra Linux capabilities, no privilege escalation.
     read_only: true
     tmpfs:
       - /tmp                 # backups are written here briefly before download
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: ./frontend
+      target: runtime
+    image: waffle-bros-pos-web:latest
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "4000:8080"          # reachable from tablets on the shop Wi-Fi too. Never port-forward this
+                             # on the router. To keep it on this PC only: "127.0.0.1:4000:8080"
+    read_only: true
+    tmpfs:
+      - /tmp                 # nginx's pid file and buffers
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true

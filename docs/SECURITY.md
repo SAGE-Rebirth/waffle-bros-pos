@@ -15,8 +15,9 @@ in [ARCHITECTURE.md](ARCHITECTURE.md#auth). Every endpoint's access level is in 
 
 ## Threat model
 
-- **Where it runs.** The POS runs on one shop PC. It listens on port 4000 on every network
-  interface, so tablets and phones on the shop Wi-Fi can use it. Data is one SQLite file on that PC
+- **Where it runs.** The POS runs on one shop PC, in Docker. Its `web` service (nginx) listens on
+  port 4000 on every network interface and is the only way in; the `api` service is reachable only
+  from `web` on the Docker network. Port 4000 is open so tablets and phones on the shop Wi-Fi can use it. Data is one SQLite file on that PC
   (or in the Docker volume `pos-data`).
 - **Who can reach it.** Anyone on the same Wi-Fi: the owner and staff, but also **customers**, if
   they share the Wi-Fi. A customer's phone, or a malicious web page opened on a shop tablet, must not
@@ -135,20 +136,31 @@ makes it far longer still.
 - **Other guards:**
   - Unknown `/api/*` paths answer a JSON 404, even with the screens built, instead of falling
     through to the app page.
-  - Static files are served only from inside `frontend/dist`.
+  - Static files are served only from inside `frontend/dist` (outside Docker) or nginx's html
+    folder (in Docker). nginx adds the same headers and CSP to them
+    (`frontend/security-headers.inc`).
   - There is no CORS middleware, so other sites can't send JSON requests to the API.
   - All SQL goes through SQLAlchemy expressions.
   - React escapes every text field (there is no `innerHTML`).
   - Errors are `{"error": "..."}` without tracebacks.
 
-### Docker (`compose.yaml`, `Dockerfile`)
+### Docker (`compose.yaml`, `Dockerfile`, `frontend/Dockerfile`)
 
-- Runs as the non-root user `pos`, with `read_only: true` (only `/tmp` is a tmpfs, for backups in
-  progress), `cap_drop: [ALL]` and `no-new-privileges:true`.
-- Data is in the named volume `pos-data`. The image contains no secrets.
-- Port `4000:4000` is published on all interfaces so tablets can connect. Docker's port rules bypass
-  the host firewall (ufw, Windows Firewall), so don't rely on the firewall to hide it. To keep the
-  POS on the PC only, use `"127.0.0.1:4000:4000"`.
+- Two services. `api` runs as the non-root user `pos`; `web` is `nginx-unprivileged` (uid 101).
+  Both have `read_only: true` (only `/tmp` is a tmpfs: backups in progress for `api`, pid and
+  buffers for nginx), `cap_drop: [ALL]` and `no-new-privileges:true`.
+- Data is in the named volume `pos-data`, mounted only into `api`. The images contain no secrets.
+- Only `web` publishes a port: `4000:8080` on all interfaces so tablets can connect. Docker's port
+  rules bypass the host firewall (ufw, Windows Firewall), so don't rely on the firewall to hide it.
+  To keep the POS on the PC only, use `"127.0.0.1:4000:8080"`. `api` is not published, so the Host
+  check, body limit and PIN throttle can't be bypassed by talking to it directly.
+- nginx passes the `Host` header through unchanged, so `HostCheck` still sees what the browser
+  typed, and **overwrites** `X-Forwarded-For` with the real client address. uvicorn believes that
+  header only from `WB_FORWARDED_ALLOW_IPS` (default `127.0.0.1`; compose sets `*` for `api`,
+  safe because only `web` can reach it). So the PIN throttle counts per tablet, and a client can't
+  dodge it by sending its own `X-Forwarded-For`.
+- `make dev` publishes the dev API on port 8000 and the Vite dev server on 5173 on all interfaces,
+  with its own `pos-dev-data` volume. Don't run it on the shop network with real data.
 
 ## Google Sheet bridge
 
@@ -192,15 +204,9 @@ For the owner, in order of importance:
    once: that also replaces the token secret.
 5. **Sign out on shared tablets.** Sign-in lasts 12 hours on that device (the token is forgotten
    when the browser closes). Changing the PIN signs out every device.
-6. **Forgot the PIN?** On the shop PC, stop the POS and run `make pin-reset`. That deletes the
-   `module:admin` row, so the PIN is `1234` again and every session is signed out. Then sign in and
-   choose a new PIN. In Docker:
-
-   ```bash
-   docker compose exec pos python -c "import sqlite3; c = sqlite3.connect('/data/waffle-bros.db'); c.execute(\"DELETE FROM settings WHERE key = 'module:admin'\"); c.commit()"
-   ```
-
-   Only someone with access to the PC (or the Docker host) can do this, which is the point.
+6. **Forgot the PIN?** On the shop PC, run `make pin-reset`. It stops `api` for a moment, deletes
+   the `module:admin` row (so the PIN is `1234` again and every session is signed out), and starts
+   it again. Then sign in and choose a new PIN. Only someone with access to the PC (or the Docker host) can do this, which is the point.
 7. **Open the POS by IP address or the PC's name.** If you give it a domain name, add it to
    `WB_ALLOWED_HOSTS`, or the Host check will refuse it.
 
@@ -224,7 +230,7 @@ From the security review of 2026-11-18 (`/tmp/claude-0/security-review.md`, not 
 | F12 | Low | Tokens can't be revoked one at a time; no server-side logout | **Accepted:** changing the PIN signs everyone out; sessions last 12 hours by default. |
 | F13 | Info | `/docs`, `/redoc`, `/openapi.json` open on the LAN; Swagger UI loads from a CDN | **Accepted:** read-only schema, useful for Claude and scripts. The CDN is limited by the `/docs` CSP. |
 | F14 | Info | Admin could set an external image or logo URL (tracking, breaks offline) | **Fixed:** only `data:image/...` or same-server paths. |
-| F15 | Info | Docker: port on all interfaces (bypasses ufw); no read-only / cap-drop; images pinned by tag | **Port binding accepted** (documented: never port-forward, `127.0.0.1:4000:4000` to keep it local). **Hardening fixed:** `read_only`, `cap_drop: [ALL]`, `no-new-privileges`. **Open:** base images are pinned by tag, not digest. |
+| F15 | Info | Docker: port on all interfaces (bypasses ufw); no read-only / cap-drop; images pinned by tag | **Port binding accepted** (documented: never port-forward, `127.0.0.1:4000:8080` to keep it local; only `web` is published). **Hardening fixed:** `read_only`, `cap_drop: [ALL]`, `no-new-privileges` on both services. **Open:** base images are pinned by tag, not digest. |
 | F16 | Info | CI actions pinned to major tags, not SHAs; npm audit highs in dev-only build deps | **Accepted:** CI has read-only permissions and no secrets; the npm issues are in vite's build tooling and nothing from them ships in `dist`. Upgrade vite when a fix is out. |
 | F17 | Info | Backups hold the PIN hash and token secret | **Accepted:** documented above (keep backups private; change the PIN if one is lost). |
 | F18 | Low | The 429 from sign-in lost its `Retry-After` header (the error handler dropped headers) | **Fixed:** the handler passes `exc.headers` through. |

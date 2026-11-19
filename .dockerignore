@@ -10,9 +10,9 @@ htmlcov
 data
 data-demo
 secrets
-frontend/node_modules
-frontend/dist
+frontend
 docs
 tests
 *.db*
 .env
+backups
