@@ -21,8 +21,10 @@ for every endpoint see [API.md](API.md).
 
 - **One shop, one computer.** Waffle Bros in Bhopal runs the POS on the shop computer. The counter
   uses it in a browser on that computer. Tablets and phones on the shop Wi-Fi open
-  `http://<computer's Wi-Fi address>:4000`. The server listens on `0.0.0.0:4000`
-  (`config.AppConfig.host` / `port`), and `uv run waffle-pos` prints the Wi-Fi address at start-up
+  `http://<computer's Wi-Fi address>:4000`. In Docker that port is the `web` service (nginx),
+  which serves the screens and forwards `/api` to the `api` service (see
+  [Deployment](#deployment-docker)). Run outside Docker, `uv run waffle-pos` listens on
+  `0.0.0.0:4000` itself (`config.AppConfig.host` / `port`) and prints the Wi-Fi address
   (`__main__._lan_ip`).
 - **Local-first, works offline.** Billing, the dashboard, day-end and admin need only the local
   server and its SQLite file. Nothing on the billing path calls the internet.
@@ -98,7 +100,8 @@ What runs in the process (`app.create_app`):
 - **Error format:** handlers turn every `HTTPException` into `{"error": "..."}` and every
   validation error into `{"error": "field: reason"}` with status 422. An `OverflowError` (an id too
   big for SQLite) becomes 404 `Not found`. The screens show `error` as-is.
-- **Static screens:** if `frontend/dist/index.html` exists, `/assets` is mounted and every other
+- **Static screens (outside Docker only):** in Docker the `api` image has no screens; `web`
+  serves them. Run on its own, if `frontend/dist/index.html` exists, `/assets` is mounted and every other
   path falls back to `index.html` (the screens use hash routing: `#billing`, `#dashboard`,
   `#dayend`, `#admin`). Unknown `/api/*` paths still answer a JSON 404. If it doesn't exist, `/` returns a "Front end not built yet" page.
   The check runs once, when the app is created.
@@ -109,32 +112,52 @@ What runs in the process (`app.create_app`):
 flowchart LR
   subgraph Host["Shop computer"]
     Browser2["Browsers on the shop Wi-Fi"]
-    subgraph Container["container: waffle-bros-pos (user pos)"]
-      App["waffle-pos<br/>uvicorn on 0.0.0.0:4000<br/>read-only root, no capabilities"]
-      Dist["/app/frontend/dist"]
+    subgraph Web["service: web (nginx, uid 101)"]
+      Nginx["nginx on :8080<br/>read-only root, no capabilities"]
+      Html["/usr/share/nginx/html<br/>(built screens)"]
+    end
+    subgraph Api["service: api (user pos)"]
+      App["waffle-pos<br/>uvicorn on :4000<br/>read-only root, no capabilities"]
       Data["/data/waffle-bros.db"]
       Tmp["/tmp (tmpfs)"]
     end
     Vol[("Docker volume<br/>pos-data")]
   end
-  Browser2 -- "host port 4000 → 4000" --> App
-  App --> Dist
+  Browser2 -- "host port 4000 → 8080" --> Nginx
+  Nginx --> Html
+  Nginx -- "/api, /docs, /openapi.json<br/>(Docker network only)" --> App
   App --> Data
   App --> Tmp
   Data -. "stored in" .-> Vol
   App -- "HTTPS POST" --> G["Apps Script web app<br/>(Google Sheet)"]
 ```
 
-- `Dockerfile` has three stages: Node 22 builds the screens, `uv sync --locked --no-dev` builds the
-  venv, and a slim Python 3.12 runtime runs as the non-root user `pos`.
-- Env in the image: `WB_DATA_DIR=/data`, `WB_FRONTEND_DIST=/app/frontend/dist`, `WB_HOST=0.0.0.0`,
+- **`api`** (root `Dockerfile`): `uv sync --locked --no-dev` builds the venv, and a slim Python 3.12
+  runtime runs as the non-root user `pos`. Env in the image: `WB_DATA_DIR=/data`, `WB_HOST=0.0.0.0`,
   `WB_PORT=4000`, `WB_TIMEZONE=Asia/Kolkata`. `VOLUME /data`. `HEALTHCHECK` polls `/api/health`.
-- `compose.yaml` publishes `4000:4000` (with a comment: never port-forward it; use
-  `127.0.0.1:4000:4000` to keep it on the PC), sets `restart: unless-stopped` (so it comes back after
-  a reboot), sets `WB_TIMEZONE`, and mounts the named volume `pos-data` at `/data`. It hardens the
-  container: `read_only: true` with a tmpfs at `/tmp` (where a backup is written before download),
-  `cap_drop: [ALL]` and `no-new-privileges:true`. No key files or secrets are mounted: the Sheet
-  sync's URL and secret live in the database.
+  It is not published on the host: only `web` can reach it.
+- **`web`** (`frontend/Dockerfile`, build context `frontend/`): Node 22 builds the screens, then
+  `nginxinc/nginx-unprivileged` serves them on 8080 with `frontend/nginx.conf`. `/api/*`, `/docs`,
+  `/redoc` and `/openapi.json` are proxied to `api:4000`; everything else falls back to
+  `index.html`. It looks `api` up through Docker's DNS on each request (cached 10 s), so a rebuilt
+  `api` container is found without restarting `web`. It passes the `Host` header through unchanged
+  (the API's `HostCheck` sees what the tablet typed) and **overwrites** `X-Forwarded-For` with the
+  real client address. The API's own security headers cover `/api` and `/docs`;
+  `frontend/security-headers.inc` adds the same ones (same CSP as `security.APP_CSP`) to the
+  screens' files. The image also has a `dev` stage (the Vite dev server) used only by `make dev`.
+- **Client addresses:** uvicorn runs with `proxy_headers=True` and `forwarded_allow_ips` from
+  `WB_FORWARDED_ALLOW_IPS` (default `127.0.0.1`). Compose sets `*` for `api`, which is safe because
+  only `web` can reach it. That way the login throttle counts wrong PINs per tablet, not per proxy.
+- **`compose.yaml`** publishes `4000:8080` on `web` (never port-forward it; use
+  `127.0.0.1:4000:8080` to keep it on the PC). `web` starts once `api` is healthy. Both have
+  `restart: unless-stopped`, `read_only: true` with a tmpfs at `/tmp` (the backup file for `api`,
+  pid and buffers for nginx), `cap_drop: [ALL]` and `no-new-privileges:true`. `api` mounts the named
+  volume `pos-data` at `/data`. No key files or secrets are mounted: the Sheet sync's URL and secret
+  live in the database.
+- **`compose.dev.yaml`** (`make dev`, project `waffle-bros-dev`) swaps in uvicorn `--reload` on the
+  bind-mounted `src/` (via `PYTHONPATH`), the Vite dev server on 5173 with the source mounted, the
+  API on host port 8000, and its own `pos-dev-data` volume. Images are tagged `:dev`, so it never
+  replaces the shop's images or data.
 
 ## Layers and their rules
 
@@ -679,7 +702,7 @@ sequenceDiagram
 ## Known limits
 
 - **Trusted network.** Billing, bill look-ups and the reports are open to anyone who can reach port
-  4000. There is no HTTPS: the PIN and admin token travel in clear text on the shop Wi-Fi.
+  4000 (the `web` service). There is no HTTPS: the PIN and admin token travel in clear text on the shop Wi-Fi.
   Customers belong on a guest Wi-Fi (see [SECURITY.md](SECURITY.md#operational-advice)).
 - **The throttle is in memory.** A restart resets it, and the minimum PIN length is still 4 digits.
 - **No per-token logout and no audit trail.** Changing the PIN is the only way to revoke tokens.

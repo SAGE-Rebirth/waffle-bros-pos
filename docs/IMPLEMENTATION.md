@@ -57,7 +57,10 @@ waffle-bros-pos/
 │       ├── sheets.py          Google Sheet sync: builds the rows, POSTs them to the Apps Script web app (sync_now, sync_loop)
 │       └── apps_script.gs     the script the owner pastes into the Google Sheet (doPost writes the tabs)
 ├── frontend/
-│   ├── vite.config.js         dev server :5173, proxies /api to :4000; builds to dist/
+│   ├── vite.config.js         dev server :5173, proxies /api to WB_API_URL (default :4000); builds to dist/
+│   ├── Dockerfile             the `web` image: deps → dev (Vite, for make dev) → build → nginx runtime
+│   ├── nginx.conf             serves the screens, proxies /api, /docs, /openapi.json to api:4000
+│   ├── security-headers.inc   the same CSP and headers the API sends, for the screens' files
 │   └── src/
 │       ├── main.jsx           mounts <App/> inside <ConfigProvider>
 │       ├── App.jsx            top bar, hash routing (#billing #dashboard #dayend #admin), today chip
@@ -69,18 +72,19 @@ waffle-bros-pos/
 │       └── pages/             Billing.jsx, Dashboard.jsx, DayEnd.jsx, Admin.jsx
 ├── tests/                     pytest: conftest.py, test_api, test_modules, test_analytics, test_targets, test_sheets, test_openapi
 ├── docs/                      API.md, openapi.json (generated), ARCHITECTURE.md, SECURITY.md, this file, screenshots
-├── Makefile                   everyday commands (`make help`)
-├── Dockerfile, compose.yaml   production image and run (port 4000, pos-data volume, read-only hardened container)
-├── start-pos.sh, start-pos.bat   one-click start without Docker
+├── Makefile                   the seven everyday commands (`make`)
+├── Dockerfile                 the `api` image (FastAPI only, no screens)
+├── compose.yaml               `web` (nginx, port 4000) + `api` (internal), pos-data volume, read-only hardened containers
+├── compose.dev.yaml           `make dev` override: uvicorn --reload, Vite hot reload, its own pos-dev-data volume
 ├── alembic.ini                Alembic CLI config (script_location = src/waffle_pos/migrations)
 ├── pyproject.toml, uv.lock    dependencies, ruff, mypy (strict), pytest and coverage settings
-└── .github/workflows/ci.yml   backend checks, frontend build, Docker build and smoke test
+└── .github/workflows/ci.yml   backend checks, frontend build, both images built and smoke-tested through web
 ```
 
 ## Local setup
 
-You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 by itself) and Node.js 22 for
-the screens.
+Running the POS needs only Docker. The checks (`make check`) and the commands below also need
+[uv](https://docs.astral.sh/uv/) (it installs Python 3.12 by itself) and Node.js 22.
 
 ```bash
 uv sync                          # .venv with Python 3.12, app and dev tools
@@ -90,57 +94,42 @@ uv run pre-commit install        # ruff, ruff-format, mypy and pytest before eac
 
 ### Make targets
 
-The `Makefile` wraps the usual commands. `make` on its own (or `make help`) lists them. `PORT`
-(default 4000) and `DATA_DIR` (default `data`) can be overridden, e.g. `make run PORT=4001`.
+`make` on its own (or `make help`) lists them. There are seven on purpose; anything else is one of
+the plain commands below.
 
 | Target | What it does |
 | --- | --- |
-| `make install` | `uv sync` and `npm ci` (also `install-backend`, `install-frontend`) |
-| `make start` | install, build the screens, then run: the one-command start |
-| `make run` | run the POS on http://localhost:4000 (the screens must already be built) |
-| `make dev` | API with auto-reload on :4000 **and** Vite hot reload on :5173, together. Open http://localhost:5173. Ctrl+C stops both |
-| `make backend` / `make frontend` | only one half of `dev` |
-| `make build` | build the screens into `frontend/dist` |
-| `make test` | pytest with coverage |
-| `make lint` | `ruff check` and `ruff format --check` |
-| `make format` | `ruff check --fix` and `ruff format` |
-| `make typecheck` | mypy strict |
-| `make openapi` | regenerate `docs/openapi.json` after an API change |
-| `make check` | lint, typecheck, test, build the screens, and `openapi --check`. Run it before pushing |
-| `make pre-commit` | all pre-commit hooks on every file |
-| `make demo` / `make run-demo` | create demo data in `data-demo/` / run the POS on it |
-| `make up` / `down` / `restart` / `logs` / `ps` | the Docker compose stack |
-| `make backup` | copy the local database into `backups/` with SQLite's backup API (safe while running) |
-| `make pin-reset` | forget the admin PIN so it goes back to 1234 (see [Troubleshooting](#troubleshooting)) |
-| `make update` | `git pull --ff-only`, then install and build |
-| `make clean` | remove build output and caches (keeps your data) |
-
-The most useful day to day:
-
-```bash
-make dev        # work on screens and API together
-make check      # before every push
-make openapi    # after touching an endpoint
-```
+| `make up` | `docker compose up -d --build --wait`: build and start `web` + `api`, POS on http://localhost:4000 |
+| `make down` | stop both (data stays in the `pos-data` volume) |
+| `make logs` | follow both services' logs |
+| `make dev` | live-reload copy in Docker (project `waffle-bros-dev`, own `pos-dev-data` volume): screens with hot reload on http://localhost:5173, API with auto-reload on :8000 (`/docs`). Ctrl+C stops it |
+| `make check` | ruff, ruff format, mypy, pytest, `openapi --check` and the screens build. Run it before pushing |
+| `make backup` | copy the live database out of the `api` container into `backups/` with SQLite's backup API (safe while billing) |
+| `make pin-reset` | stop `api`, forget the admin PIN so it goes back to 1234, start `api` again (see [Troubleshooting](#troubleshooting)) |
 
 ### The commands underneath
 
 ```bash
-uv run uvicorn waffle_pos.app:create_app --factory --reload --port 4000   # API, auto-reload
-cd frontend && npm run dev                                                 # screens on :5173
-cd frontend && npm run build && cd .. && uv run waffle-pos                 # production-style on :4000
+uv run ruff check --fix && uv run ruff format                              # auto-fix and format
 uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest
 uv run pre-commit run --all-files                                          # everything CI runs
 uv run python -m waffle_pos.openapi                                        # regenerate docs/openapi.json
-uv run python -m waffle_pos.demo && WB_DATA_DIR=data-demo uv run waffle-pos
-docker compose up -d --build
+uv run uvicorn waffle_pos.app:create_app --factory --reload --port 4000   # API outside Docker, auto-reload
+cd frontend && npm run dev                                                 # screens on :5173, /api → :4000
+uv run python -m waffle_pos.demo && WB_DATA_DIR=data-demo uv run waffle-pos   # demo data, outside Docker
+docker compose -p waffle-bros-dev -f compose.yaml -f compose.dev.yaml down -v   # wipe the dev data
 ```
+
+Outside Docker, `uv run waffle-pos` still serves `frontend/dist` itself if it has been built, so
+one process is enough for a quick look at the demo data.
 
 Process settings come from environment variables or `.env`: `WB_DATA_DIR` (default `./data`),
 `WB_PORT` (4000), `WB_HOST` (`0.0.0.0`), `WB_TIMEZONE` (`Asia/Kolkata`), `WB_FRONTEND_DIST`,
 `WB_SYNC_INTERVAL_SECONDS` (unset = use the module's "Sync every" setting), `WB_ALLOWED_HOSTS`
-(extra host names the POS may be opened by, comma-separated) and `WB_MAX_BODY_BYTES` (default
-1,000,000).
+(extra host names the POS may be opened by, comma-separated), `WB_MAX_BODY_BYTES` (default
+1,000,000) and `WB_FORWARDED_ALLOW_IPS` (proxies whose `X-Forwarded-For` uvicorn believes; default
+`127.0.0.1`, compose sets `*` because only `web` can reach `api`). In Docker they go under `api`
+in `compose.yaml`.
 
 The demo generator writes to `data-demo/` (or `WB_DEMO_DIR`). It wipes that folder first and
 refuses to run against the real `data/` folder.
@@ -375,7 +364,7 @@ a single "No sales yet" tip. `_menu` uses the `targets` module's `slow_mover_pct
    `max_length` and every amount `le=MAX_MONEY`. If a counter screen calls it, use `pinApi`.
 4. **Tests** in `tests/test_api.py`, using the `api_client` fixture (and `_admin(client)` for
    headers when it needs the PIN).
-5. `make openapi` (or `uv run python -m waffle_pos.openapi`). `tests/test_openapi.py` fails until
+5. `uv run python -m waffle_pos.openapi`. `tests/test_openapi.py` fails until
    `docs/openapi.json` matches, and it checks every operation has a summary, description and tag.
 6. Document it in `docs/API.md`, marked **(Admin)** if it needs the PIN.
 
@@ -470,14 +459,14 @@ Three places hold the default colours. Keep them in step:
 3. `frontend/src/styles.css` → `:root` (`--yellow`, `--choc`, `--honey`, `--cream` and the mixed
    shades): the very first paint.
 
-Then `make build`. A shop that has already saved the Look module keeps its stored colours, because
+Then `make up` (or `cd frontend && npm run build`). A shop that has already saved the Look module keeps its stored colours, because
 `save_settings` stores every field. The owner changes them in **Admin → Modules → Look**. To add a
 new themable colour, add a `Color` field to `ThemeSettings`, map it in `themeVars()`, and use the
 variable in `styles.css`.
 
 ## Testing
 
-`uv run pytest` (or `make test`) runs everything with coverage (`--cov=waffle_pos
+`uv run pytest` (`make check` runs it too) runs everything with coverage (`--cov=waffle_pos
 --cov-report=term-missing:skip-covered`, set in `pyproject.toml`). Coverage leaves out
 `migrations/`, `__main__.py` and `demo.py`. There is no minimum threshold, but new logic needs
 tests.
@@ -516,17 +505,18 @@ page instead of JSON) or a different `secret`.
 
 ## Troubleshooting
 
-**Port 4000 is already in use.** Another copy of the POS (or the Docker container) is probably
-running. Check with `lsof -i :4000` (macOS / Linux) or `netstat -ano | findstr :4000` (Windows),
-and stop it (`make down` for Docker). Or run on another port: `make run PORT=4001` or `WB_PORT=4001 uv run
-waffle-pos`. In Docker, change the left side of `ports: "4000:4000"` in `compose.yaml`. The Vite
-dev server proxies `/api` to `localhost:4000`, so `make dev` needs the API on 4000.
+**Port 4000 is already in use.** Another copy of the POS is probably running. Check with
+`docker compose ps` or `lsof -i :4000`, and stop it (`make down`). Or publish another port: change
+the left side of `ports: "4000:8080"` under `web` in `compose.yaml`. `make dev` uses 5173 and 8000
+instead, so it can run next to `make up`.
 
-**"Front end not built yet. Run `npm ci && npm run build` in `frontend/`."** `frontend/dist/index.html`
-was missing when the server started. Run `make build` (or `cd frontend && npm ci && npm run build`)
-and **restart** the server, because the check runs only when the app is created. `make start` does
-install, build and run in one go. With a custom
-location, set `WB_FRONTEND_DIST`.
+**502 Bad Gateway from the POS.** `web` is up but can't reach `api`: it is still starting
+(migrations run first) or has stopped. `docker compose ps` shows its health and `make logs` shows
+why. `make up` waits for both to be healthy.
+
+**"Front end not built yet."** You opened the backend directly outside Docker
+(`uv run waffle-pos`) without `frontend/dist`. Run `cd frontend && npm ci && npm run build` and
+restart it, or use `make up`, where `web` serves the screens.
 
 **"This address isn't allowed. Open the POS by its IP address or add the name to
 WB_ALLOWED_HOSTS."** (400) The `HostCheck` middleware only accepts IP addresses, single-word names
@@ -565,17 +555,11 @@ row of the `settings` table. If that row is missing, `registry.load_settings` re
 the PIN:
 
 ```bash
-# Without Docker: the Makefile does it for data/ (DATA_DIR=... for another folder)
+# In Docker: stops api, deletes the row, starts api again
 make pin-reset
 
-# Or by hand (the Makefile asks you to stop the POS first; by hand the next request reads the change)
+# Outside Docker (stop the server first; by hand the next request reads the change)
 sqlite3 data/waffle-bros.db "DELETE FROM settings WHERE key = 'module:admin';"
-
-# No sqlite3 installed? Same thing with Python:
-uv run python -c "import sqlite3; c = sqlite3.connect('data/waffle-bros.db'); c.execute(\"DELETE FROM settings WHERE key = 'module:admin'\"); c.commit()"
-
-# Docker (the image has Python but not the sqlite3 tool)
-docker compose exec pos python -c "import sqlite3; c = sqlite3.connect('/data/waffle-bros.db'); c.execute(\"DELETE FROM settings WHERE key = 'module:admin'\"); c.commit()"
 ```
 
 Then sign in with **1234**. The Admin page shows only the change-PIN card, and every other admin

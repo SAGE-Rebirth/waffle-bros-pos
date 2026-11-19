@@ -26,7 +26,14 @@ def main() -> None:
     print(
         f"  Data file:          {config.db_path}\n  API docs:           http://localhost:{config.port}/docs\n"
     )
-    uvicorn.run(create_app(config), host=config.host, port=config.port, log_level="warning")
+    uvicorn.run(
+        create_app(config),
+        host=config.host,
+        port=config.port,
+        log_level="warning",
+        proxy_headers=True,
+        forwarded_allow_ips=config.forwarded_allow_ips,
+    )
 
 
 if __name__ == "__main__":

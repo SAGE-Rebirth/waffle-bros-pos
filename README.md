@@ -27,7 +27,7 @@ Menu changes, settings, backups, cancelling a bill, the monthly target, expenses
 - After 5 wrong PINs on a device, that device has to wait 30 seconds, then longer with every further wrong PIN (up to 15 minutes).
 - Changing the PIN signs everyone out of the admin dashboard, on every device.
 - Sign-in lasts 12 hours on that device.
-- Forgot the PIN? On the shop computer, stop the POS and run `make pin-reset`. It goes back to 1234 and asks for a new one.
+- Forgot the PIN? On the shop computer, run `make pin-reset`. It goes back to 1234 and asks for a new one.
 - More about keeping the POS safe (guest Wi-Fi for customers, never port-forwarding 4000, storing backups): [docs/SECURITY.md](docs/SECURITY.md).
 - Features are **modules** you switch on or off under **Admin → Modules**: GST (off until you switch it on), discounts (on, at most 20% of a bill by default), Google Sheet sync (off), and WhatsApp orders (phase 2). Shop details, colours, billing options and targets are always on.
 
@@ -42,67 +42,60 @@ The maths lives in `src/waffle_pos/services/targets.py` as pure functions with u
 - **Expenses** = one-off expenses dated this month + every monthly expense (rent, salary) added in or before this month. **Break-even/day** = monthly expenses ÷ days in the month.
 - **Best seller** = most revenue. **Most popular** = most units sold. **Customer favourite** = appears in the most separate bills.
 
-## Running it with Docker (recommended)
+## Running it
 
-Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) on the shop computer, then from this folder:
+The POS runs in Docker as two services:
 
-```bash
-docker compose up -d --build     # first time, and after every update (git pull); or: make up
-```
+| Service | What it is | Port |
+| --- | --- | --- |
+| `web` | nginx serving the screens. It forwards `/api` and `/docs` to `api`. | **4000** on the computer (and tablets on the Wi-Fi) |
+| `api` | The FastAPI backend, with the SQLite database in the `pos-data` volume. | Inside Docker only; only `web` can reach it |
 
-The POS is at http://localhost:4000 (and on tablets via the computer's Wi-Fi address). It restarts by itself after a reboot. Useful commands:
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) on the shop computer, then from this folder run `make` to see the commands:
 
-```bash
-docker compose logs -f           # see what it's doing
-docker compose down              # stop it (your data stays)
-docker compose pull && docker compose up -d --build   # update after a git pull
-```
+| Command | What it does |
+| --- | --- |
+| `make up` | Build and start the POS on http://localhost:4000. Run it again after every `git pull`. |
+| `make down` | Stop the POS. Your data stays. |
+| `make logs` | Follow what both services are doing. |
+| `make dev` | A live-reload copy for working on the code (see [Development](#development)). |
+| `make check` | Everything CI checks: lint, types, tests, OpenAPI drift and the screens build. |
+| `make backup` | Save a copy of the live database into `backups/`, safe while billing. |
+| `make pin-reset` | Forget the admin PIN, so it goes back to 1234. |
 
-- **Data** lives in the Docker volume `pos-data` (`/data/waffle-bros.db` inside the container) and survives rebuilds and updates. Download a copy any time from **Admin → Backup**.
+The POS is at http://localhost:4000 (and on tablets via the computer's Wi-Fi address), with the API docs at http://localhost:4000/docs. It restarts by itself after a reboot.
+
+- **Data** lives in the Docker volume `pos-data` (`/data/waffle-bros.db` inside `api`) and survives rebuilds and updates. Download a copy any time from **Admin → Backup**, or run `make backup`.
 - **Google Sheet sync** needs no files: it is set up entirely in **Admin → Modules → Google Sheet sync** (see [Google Sheet sync](#google-sheet-sync)).
-- **Time zone:** `WB_TIMEZONE` in `compose.yaml` (default Asia/Kolkata).
-- **Hardened container:** it runs as a non-root user with a read-only file system, no extra Linux capabilities and no privilege escalation.
-- **Never port-forward 4000** on the router. Docker opens the port past the computer's firewall, so tablets on the Wi-Fi can reach it; to keep it on this computer only, change the port line in `compose.yaml` to `"127.0.0.1:4000:4000"`.
+- **Time zone:** `WB_TIMEZONE` under `api` in `compose.yaml` (default Asia/Kolkata).
+- **Hardened containers:** both run as non-root users with a read-only file system, no extra Linux capabilities and no privilege escalation.
+- **Never port-forward 4000** on the router. Docker opens the port past the computer's firewall, so tablets on the Wi-Fi can reach it; to keep it on this computer only, change the `web` port line in `compose.yaml` to `"127.0.0.1:4000:8080"`.
 
-## Running it without Docker
-
-You need **[uv](https://docs.astral.sh/uv/)** (it installs the right Python by itself) and, to build the screens once, **Node.js 22**.
-
-**Windows:** double-click `start-pos.bat`. The first run sets everything up, then the POS opens at http://localhost:4000.
-
-**macOS / Linux:** `./start-pos.sh`, or `make start` (installs, builds the screens and runs the POS).
-
-Or by hand:
-
-```bash
-uv sync                                  # creates .venv with Python 3.12 and all dependencies
-(cd frontend && npm ci && npm run build) # build the screens once
-uv run waffle-pos                        # http://localhost:4000 (also prints the Wi-Fi address for tablets)
-```
-
-API docs are at http://localhost:4000/docs.
-
-Settings for the server process come from environment variables or a `.env` file: `WB_DATA_DIR`, `WB_PORT`, `WB_TIMEZONE` (default `Asia/Kolkata`), `WB_SYNC_INTERVAL_SECONDS` (overrides the "Sync every" setting), `WB_ALLOWED_HOSTS` (extra host names the POS may be opened by, e.g. `pos.waffle-bros.in`; IP addresses, plain computer names and `*.local` names always work) and `WB_MAX_BODY_BYTES` (largest request, default 1,000,000).
-
-### Try it with sample data
-
-```bash
-uv run python -m waffle_pos.demo                 # ~6 weeks of made-up sales in data-demo/ (WB_DEMO_DIR to change; real data is never touched)
-WB_DATA_DIR=data-demo uv run waffle-pos          # Windows: set WB_DATA_DIR=data-demo && uv run waffle-pos
-```
+Settings for the backend come from environment variables (under `api` in `compose.yaml`) or a `.env` file: `WB_DATA_DIR`, `WB_PORT`, `WB_TIMEZONE` (default `Asia/Kolkata`), `WB_SYNC_INTERVAL_SECONDS` (overrides the "Sync every" setting), `WB_ALLOWED_HOSTS` (extra host names the POS may be opened by, e.g. `pos.waffle-bros.in`; IP addresses, plain computer names and `*.local` names always work), `WB_MAX_BODY_BYTES` (largest request, default 1,000,000) and `WB_FORWARDED_ALLOW_IPS` (proxies whose `X-Forwarded-For` is believed; compose sets `*` because only `web` can reach `api`).
 
 ## Development
 
-See `CLAUDE.md` for conventions, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design, [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the hands-on guide, [docs/SECURITY.md](docs/SECURITY.md) for security, and [docs/API.md](docs/API.md) for the full API reference (also live at http://localhost:4000/docs). `make` lists the everyday commands (`make dev`, `make check`, `make openapi`, ...).
+See `CLAUDE.md` for conventions, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design, [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the hands-on guide, [docs/SECURITY.md](docs/SECURITY.md) for security, and [docs/API.md](docs/API.md) for the full API reference (also live at http://localhost:4000/docs).
+
+`make dev` runs both services with live reload, using only Docker:
+
+- Screens with hot reload on http://localhost:5173 (the Vite dev server, forwarding `/api` to `api`).
+- The API with auto-reload on http://localhost:8000 (Swagger at http://localhost:8000/docs), running your `src/` directly.
+- It's a separate Docker project (`waffle-bros-dev`) with its own `pos-dev-data` volume, so it never touches the shop's data and can run next to `make up`. Ctrl+C stops it.
+
+`make check` needs [uv](https://docs.astral.sh/uv/) and Node.js 22 on your computer. The commands underneath, for when you need just one:
 
 ```bash
-uv sync                       # dev tools included
+uv sync                       # .venv with Python 3.12 and the dev tools
 uv run pre-commit install     # ruff, ruff-format, mypy and pytest before every commit
 uv run ruff check && uv run ruff format --check
+uv run ruff check --fix && uv run ruff format   # auto-fix and format
 uv run mypy                   # strict
 uv run pytest                 # with coverage
-uv run uvicorn waffle_pos.app:create_app --factory --reload --port 4000   # API with auto-reload
-cd frontend && npm run dev    # screens with hot reload on :5173, proxied to the API
+uv run python -m waffle_pos.openapi            # regenerate docs/openapi.json after API changes
+uv run python -m waffle_pos.demo               # ~6 weeks of made-up sales in data-demo/ (real data is never touched)
+WB_DATA_DIR=data-demo uv run waffle-pos        # run the backend on the demo data, http://localhost:4000
+cd frontend && npm ci && npm run build         # build the screens (the backend serves frontend/dist if it exists)
 ```
 
 Database changes: edit `src/waffle_pos/db/models.py`, then `uv run alembic revision --autogenerate -m "what changed"`. The app applies pending migrations on start-up.
@@ -141,13 +134,13 @@ The POS creates any of these tabs that are missing and never touches other tabs,
 
 ## Backups
 
-All data lives in `data/waffle-bros.db` (SQLite). **Admin → Backup** downloads a consistent copy, even while the shop is billing; `make backup` saves one into `backups/` on the shop computer. Keep backups private: they hold customer phone numbers and the admin PIN's hash.
+All data lives in `waffle-bros.db` (SQLite) in the `pos-data` Docker volume. **Admin → Backup** downloads a consistent copy, even while the shop is billing; `make backup` saves one into `backups/` on the shop computer. Keep backups private: they hold customer phone numbers and the admin PIN's hash.
 
 ## Project layout
 
 ```
 src/waffle_pos/
-  app.py            FastAPI app factory (routes, middlewares, error format, serves frontend/dist)
+  app.py            FastAPI app factory (routes, middlewares, error format; serves frontend/dist when run outside Docker)
   security.py       Host check, request size limit, security headers
   __main__.py       `uv run waffle-pos`
   config.py         process settings (WB_* env vars)
@@ -161,9 +154,11 @@ src/waffle_pos/
   integrations/     Google Sheet sync and the Apps Script to paste into the sheet
   demo.py           demo data generator
 tests/              pytest: API, target maths, analytics, Sheets sync (mocked)
-frontend/           React + Vite screens
+frontend/           React + Vite screens, and their image (Dockerfile, nginx.conf)
 docs/               API, architecture, implementation guide, security
-Makefile            everyday commands (`make help`)
+Makefile            the seven everyday commands (`make`)
+Dockerfile          the api image
+compose.yaml        the web + api services; compose.dev.yaml adds live reload for `make dev`
 ```
 
 ## Phase 2: WhatsApp ordering (planned)

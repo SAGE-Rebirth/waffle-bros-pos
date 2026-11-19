@@ -26,6 +26,9 @@ class AppConfig(BaseSettings):
     # IP addresses, single-word names (localhost, shop-pc) and *.local names always work.
     allowed_hosts: str = ""
     max_body_bytes: int = 1_000_000
+    # Proxies whose X-Forwarded-For header is believed, so the PIN lockout sees each tablet's own
+    # address. In Docker the `web` (nginx) container is the only way in, so compose sets "*".
+    forwarded_allow_ips: str = "127.0.0.1"
 
     @property
     def allowed_host_list(self) -> list[str]:

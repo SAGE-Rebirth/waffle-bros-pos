@@ -16,6 +16,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from waffle_pos import __main__ as entry
 from waffle_pos.app import create_app
 from waffle_pos.config import AppConfig
 from waffle_pos.integrations import sheets
@@ -490,3 +491,20 @@ def test_middleware_errors_carry_security_headers(client: TestClient) -> None:
     assert r.status_code == 400
     assert r.headers["x-frame-options"] == "DENY"
     assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_server_trusts_forwarded_for_only_from_configured_proxies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Behind nginx (the `web` service) the PIN lockout must see each tablet, not the proxy."""
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(entry, "create_app", lambda config: "app")
+    monkeypatch.setattr("uvicorn.run", lambda app, **kw: calls.append(kw))
+    for cfg, expected in (
+        (AppConfig(data_dir=tmp_path, start_sync_loop=False), "127.0.0.1"),
+        (AppConfig(data_dir=tmp_path, start_sync_loop=False, forwarded_allow_ips="*"), "*"),
+    ):
+        monkeypatch.setattr(entry, "get_config", lambda cfg=cfg: cfg)
+        entry.main()
+        assert calls[-1]["proxy_headers"] is True
+        assert calls[-1]["forwarded_allow_ips"] == expected
