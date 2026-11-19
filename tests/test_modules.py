@@ -135,7 +135,7 @@ def test_admin_module_listing_and_update(mod_client: TestClient) -> None:
 
 def test_modules_change_billing(mod_client: TestClient) -> None:
     h = _admin(mod_client)
-    item = {"items": [{"item_id": 1}]}  # Classic Maple Butter, 129
+    item = {"items": [{"item_id": 1}]}  # Amul Dark Chocolate Waffle, 129
     assert mod_client.post("/api/orders", json=item).json()["tax"] == 0
 
     mod_client.put("/api/admin/modules/gst", headers=h, json={"enabled": True, "settings": {"rate": 5}})

@@ -33,34 +33,34 @@ def _item_id(client: TestClient, code: str) -> int:
 
 def test_menu_is_seeded(api_client: TestClient) -> None:
     menu = api_client.get("/api/menu").json()
-    assert [c["name"] for c in menu["categories"]] == ["Waffle", "Sandwich", "Combo", "Mini Waffle"]
-    assert len(menu["items"]) == 18
-    nutella = next(i for i in menu["items"] if i["code"] == "W05")
+    assert [c["name"] for c in menu["categories"]] == ["Waffle", "Mini Waffle", "Bowl", "Snacks", "Combo"]
+    assert len(menu["items"]) == 20
+    nutella = next(i for i in menu["items"] if i["code"] == "W03")
     assert nutella["category"] == "Waffle"
-    assert nutella["price"] == 199
+    assert nutella["price"] == 189
     assert nutella["active"] is True
 
 
 def test_order_is_priced_on_the_server(api_client: TestClient) -> None:
-    w05, c01 = _item_id(api_client, "W05"), _item_id(api_client, "C01")
+    w03, c02 = _item_id(api_client, "W03"), _item_id(api_client, "C02")
     r = api_client.post(
         "/api/orders",
         json={
-            "items": [{"item_id": w05, "qty": 2}, {"item_id": c01, "qty": 1}],
+            "items": [{"item_id": w03, "qty": 2}, {"item_id": c02, "qty": 1}],
             "payment_method": "upi",
             "discount": 30,
         },
     )
     assert r.status_code == 200, r.text
     order = r.json()
-    assert order["subtotal"] == 2 * 199 + 229
+    assert order["subtotal"] == 2 * 189 + 229
     assert order["discount"] == 30
-    assert order["total"] == 2 * 199 + 229 - 30
+    assert order["total"] == 2 * 189 + 229 - 30
     assert order["bill_no"] == f"WB{clock.today():%y%m%d}-001"
     assert len(order["created_at"]) == 19 and order["created_at"][10] == " "
-    assert [(i["name"], i["qty"]) for i in order["items"]] == [("Nutella", 2), ("Waffle + Cold Coffee", 1)]
+    assert [(i["name"], i["qty"]) for i in order["items"]] == [("Nutella Waffle", 2), ("Waffle Duo", 1)]
 
-    second = api_client.post("/api/orders", json={"items": [{"item_id": w05}]}).json()
+    second = api_client.post("/api/orders", json={"items": [{"item_id": w03}]}).json()
     assert second["bill_no"].endswith("-002")
 
 
@@ -94,9 +94,9 @@ def test_bad_orders_return_readable_errors(
 
 
 def test_cancel_removes_order_from_sales(api_client: TestClient) -> None:
-    w05 = _item_id(api_client, "W05")
-    order = api_client.post("/api/orders", json={"items": [{"item_id": w05}]}).json()
-    assert api_client.get("/api/dashboard").json()["target"]["todayRevenue"] == 199
+    w03 = _item_id(api_client, "W03")
+    order = api_client.post("/api/orders", json={"items": [{"item_id": w03}]}).json()
+    assert api_client.get("/api/dashboard").json()["target"]["todayRevenue"] == 189
     assert api_client.post(f"/api/orders/{order['id']}/cancel").status_code == 401
     cancelled = api_client.post(f"/api/orders/{order['id']}/cancel", headers=_admin(api_client)).json()
     assert cancelled["status"] == "cancelled"
@@ -134,8 +134,8 @@ def test_targets_and_expenses_feed_the_dashboard(api_client: TestClient) -> None
 
 
 def test_dashboard_shapes(api_client: TestClient) -> None:
-    w05 = _item_id(api_client, "W05")
-    api_client.post("/api/orders", json={"items": [{"item_id": w05, "qty": 3}]})
+    w03 = _item_id(api_client, "W03")
+    api_client.post("/api/orders", json={"items": [{"item_id": w03, "qty": 3}]})
     d = api_client.get("/api/dashboard?period=today").json()
     assert set(d) == {"target", "charts", "insights", "items"}
     assert set(d["charts"]) >= {
@@ -147,14 +147,14 @@ def test_dashboard_shapes(api_client: TestClient) -> None:
         "paymentSplit",
         "weekday",
     }
-    assert d["items"]["bestSeller"]["name"] == "Nutella"
+    assert d["items"]["bestSeller"]["name"] == "Nutella Waffle"
     assert d["items"]["mostPopular"]["qty"] == 3
     assert all({"tone", "title", "text"} <= set(i) for i in d["insights"])
     assert api_client.get("/api/items/stats?period=week").json()["period"] == "week"
     assert api_client.get("/api/items/stats?period=year").status_code == 422
     day = api_client.get("/api/day-end").json()
     assert day["orders"] == 1
-    assert day["revenue"] == 597
+    assert day["revenue"] == 567
 
 
 def test_menu_editing(api_client: TestClient) -> None:
@@ -176,10 +176,10 @@ def test_menu_editing(api_client: TestClient) -> None:
 
     # Unsold items are deleted; sold items are hidden so old bills stay intact.
     assert api_client.delete(f"/api/items/{new_id}", headers=h).json()["hidden"] is False
-    w05 = _item_id(api_client, "W05")
-    api_client.post("/api/orders", json={"items": [{"item_id": w05}]})
-    assert api_client.delete(f"/api/items/{w05}", headers=h).json()["hidden"] is True
-    nutella = next(i for i in api_client.get("/api/menu").json()["items"] if i["id"] == w05)
+    w03 = _item_id(api_client, "W03")
+    api_client.post("/api/orders", json={"items": [{"item_id": w03}]})
+    assert api_client.delete(f"/api/items/{w03}", headers=h).json()["hidden"] is True
+    nutella = next(i for i in api_client.get("/api/menu").json()["items"] if i["id"] == w03)
     assert nutella["active"] is False
 
 

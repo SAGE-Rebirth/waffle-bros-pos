@@ -74,15 +74,16 @@ curl http://localhost:4000/api/menu
 {
   "categories": [
     {"id": 1, "name": "Waffle", "sort": 0},
-    {"id": 2, "name": "Sandwich", "sort": 1},
-    {"id": 3, "name": "Combo", "sort": 2},
-    {"id": 4, "name": "Mini Waffle", "sort": 3}
+    {"id": 2, "name": "Mini Waffle", "sort": 1},
+    {"id": 3, "name": "Bowl", "sort": 2},
+    {"id": 4, "name": "Snacks", "sort": 3},
+    {"id": 5, "name": "Combo", "sort": 4}
   ],
   "items": [
     {
-      "id": 1, "code": "W01", "name": "Classic Maple Butter",
+      "id": 1, "code": "W01", "name": "Amul Dark Chocolate Waffle",
       "category_id": 1, "category": "Waffle",
-      "price": 129.0, "cost": 40.0, "image": null,
+      "price": 129.0, "cost": 46.0, "image": null,
       "veg": true, "active": true, "sort": 0
     },
     ...
@@ -322,7 +323,7 @@ curl http://localhost:4000/api/orders/1
   "payment_method": "upi", "order_type": "takeaway", "source": "counter",
   "customer_name": null, "customer_phone": null, "delivery_address": null,
   "status": "paid", "note": null,
-  "items": [{"id": 1, "item_id": 1, "name": "Classic Maple Butter", "category": "Waffle", "price": 129.0, "qty": 1}]
+  "items": [{"id": 1, "item_id": 1, "name": "Amul Dark Chocolate Waffle", "category": "Waffle", "price": 129.0, "qty": 1}]
 }
 ```
 

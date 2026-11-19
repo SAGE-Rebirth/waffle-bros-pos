@@ -37,8 +37,8 @@ REAL_DATA_DIR = PROJECT_ROOT / "data"
 
 # How often each item sells, relative to the others.
 POPULARITY: dict[str, float] = {
-    "W01": 6, "W02": 9, "W03": 7, "W04": 8, "W05": 12, "W06": 7, "W07": 4, "W08": 6, "W09": 1,
-    "S01": 3, "S02": 5, "S03": 2, "C01": 6, "C02": 4, "C03": 2, "M01": 6, "M02": 5, "M03": 0.6,
+    "W01": 10, "W02": 6, "W03": 9, "W04": 7, "M01": 6, "M02": 4, "M03": 5, "B01": 5, "B02": 3, "B03": 4,
+    "S01": 4, "S02": 6, "S03": 3, "S04": 5, "S05": 7, "C01": 4, "C02": 3, "C03": 2, "C04": 2, "C05": 0.6,
 }  # fmt: skip
 # Quiet lunch, busy evenings.
 HOUR_WEIGHTS: list[tuple[int, float]] = [
@@ -104,9 +104,9 @@ def _orders_for_day(day: date) -> int:
 
 
 def generate_orders(session: Session, rand: Lcg, start: date, now: datetime) -> int:
-    weighted_items = [
-        (i.id, POPULARITY.get(i.code, 1)) for i in session.scalars(select(Item).order_by(Item.id))
-    ]
+    menu = list(session.scalars(select(Item).order_by(Item.id)))
+    weighted_items = [(i.id, POPULARITY.get(i.code, 1)) for i in menu]
+    prices = {i.id: i.price for i in menu}
     orders = 0
     day = start
     while day <= now.date():
@@ -123,12 +123,11 @@ def generate_orders(session: Session, rand: Lcg, start: date, now: datetime) -> 
                 OrderLineIn(item_id=rand.pick(weighted_items), qty=rand.pick(QTY_PER_LINE))
                 for _ in range(rand.pick(LINES_PER_BILL))
             ]
-            data = OrderCreate(
-                items=lines,
-                payment_method=rand.pick(PAYMENT),
-                order_type=rand.pick(ORDER_TYPE),
-                discount=20 if rand() < 0.05 else 0,
-            )
+            payment, order_type = rand.pick(PAYMENT), rand.pick(ORDER_TYPE)
+            # ₹20 off now and then, only where it fits under the 20% discount cap.
+            subtotal = sum(prices[line.item_id] * line.qty for line in lines)
+            discount = 20 if rand() < 0.05 and subtotal >= 100 else 0
+            data = OrderCreate(items=lines, payment_method=payment, order_type=order_type, discount=discount)
             create_order(session, data, when=when)
             orders += 1
         day += timedelta(days=1)
