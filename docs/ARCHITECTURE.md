@@ -85,7 +85,7 @@ flowchart LR
 What runs in the process (`app.create_app`):
 
 - **Lifespan start-up:** `db.migrate.upgrade_to_head` applies pending Alembic migrations, then
-  `db.seed.seed_if_empty` writes the starter menu (4 categories, 18 items) on a new database, then
+  `db.seed.seed_if_empty` writes the starter menu (5 categories, 20 items: the launch menu) on a new database, then
   the sheets `sync_loop` starts as an asyncio task if `config.start_sync_loop` is true (tests turn
   it off).
 - **Middlewares** (`security.py`), outermost first: `HostCheck` (refuses unknown `Host` names,

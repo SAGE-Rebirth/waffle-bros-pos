@@ -120,7 +120,7 @@ def _add_sales(factory: sessionmaker[Session]) -> list[str]:
         ids = {i.code: i.id for i in session.scalars(select(Item))}
         o1 = create_order(
             session,
-            OrderCreate(items=[OrderLineIn(item_id=ids["W05"], qty=2), OrderLineIn(item_id=ids["S01"])]),
+            OrderCreate(items=[OrderLineIn(item_id=ids["W03"], qty=2), OrderLineIn(item_id=ids["S01"])]),
             when=today,
         )
         o2 = create_order(
@@ -128,7 +128,7 @@ def _add_sales(factory: sessionmaker[Session]) -> list[str]:
             OrderCreate(items=[OrderLineIn(item_id=ids["W01"])], payment_method="upi", customer_name="Asha"),
             when=today + timedelta(minutes=5),
         )
-        o3 = create_order(session, OrderCreate(items=[OrderLineIn(item_id=ids["C03"])]), when=today)
+        o3 = create_order(session, OrderCreate(items=[OrderLineIn(item_id=ids["C05"])]), when=today)
         cancel_order(session, o3.id)
         session.add(Expense(date=date(2026, 1, 1), category="rent", amount=25000, recurring=True))
         session.add(Expense(date=date(2026, 1, 3), category="ingredients", amount=9000, note="Weekly stock"))
@@ -188,35 +188,35 @@ def test_sync_posts_every_tab_and_marks_synced(sheets_enabled: sessionmaker[Sess
     orders = fake.rows("Orders")
     assert [r[0] for r in orders] == bills
     first = orders[0]
-    assert first[3] == "Nutella x2, Veg Grilled Waffle Sandwich x1"
-    assert first[7] == 199 * 2 + 139
+    assert first[3] == "Nutella Waffle x2, Veg Sandwich x1"
+    assert first[7] == 189 * 2 + 59
     assert orders[1][8] == "upi" and orders[1][12] == "Asha"
     assert orders[2][11] == "cancelled"
 
     items = fake.rows("OrderItems")
     assert len(items) == 4
-    assert items[0][3:] == ["Nutella", "Waffle", 199, 2, 398]
+    assert items[0][3:] == ["Nutella Waffle", "Waffle", 189, 2, 378]
 
     assert fake.rows("Expenses") == [
         ["2026-01-01", "rent", 25000, "Monthly", ""],
         ["2026-01-03", "ingredients", 9000, "One-off", "Weekly stock"],
     ]
 
-    # Daily: today only, paid bills only (the cancelled family pack is left out).
+    # Daily: today only, paid bills only (the cancelled Family Feast is left out).
     today = f"{clock.today():%Y-%m-%d}"
-    assert fake.rows("Daily") == [[today, 537 + 129, 2, 333, "Nutella"]]
+    assert fake.rows("Daily") == [[today, 437 + 129, 2, 283, "Nutella Waffle"]]
 
     # Items: whole menu, best earners first, last 30 days of paid bills.
     item_rows = fake.rows("Items")
-    assert len(item_rows) == 18
-    assert item_rows[0][:3] == ["W05", "Nutella", "Waffle"]
-    assert item_rows[0][6:9] == [2, 1, 398]
+    assert len(item_rows) == 20
+    assert item_rows[0][:3] == ["W03", "Nutella Waffle", "Waffle"]
+    assert item_rows[0][6:9] == [2, 1, 378]
 
     # Monthly: 12 months ending with this one; expenses include the recurring rent.
     monthly = fake.rows("Monthly")
     assert len(monthly) == 12
     assert monthly[-1][0] == clock.month_key(clock.today())
-    assert monthly[-1][2:5] == [537 + 129, 2, 333]
+    assert monthly[-1][2:5] == [437 + 129, 2, 283]
     assert monthly[-1][6] >= 25000
 
     with session_scope(sheets_enabled) as session:
@@ -228,7 +228,7 @@ def test_sync_posts_every_tab_and_marks_synced(sheets_enabled: sessionmaker[Sess
     again = run(_sync(sheets_enabled, fake))
     assert again.message == "Synced 0 orders and 0 expenses."
     assert len(fake.rows("Orders")) == 3
-    assert len(fake.rows("Items")) == 18
+    assert len(fake.rows("Items")) == 20
     assert len(fake.rows("Monthly")) == 12
 
 

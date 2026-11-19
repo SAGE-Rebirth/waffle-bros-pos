@@ -188,20 +188,20 @@ def test_fresh_install(client: TestClient) -> None:
     assert mods["billing"]["settings"]["payment_methods"] == ["upi", "cash", "card"]
     assert mods["targets"]["settings"]["default_target"] == 100000
 
-    # The starter menu is seeded: 4 categories, 18 active items, in menu order.
+    # The starter menu is seeded: 5 categories, 20 active items, in menu order.
     menu = ok(client.get("/api/menu"))
-    assert [c["name"] for c in menu["categories"]] == ["Waffle", "Sandwich", "Combo", "Mini Waffle"]
-    assert [c["sort"] for c in menu["categories"]] == [0, 1, 2, 3]
-    assert len(menu["items"]) == 18
+    assert [c["name"] for c in menu["categories"]] == ["Waffle", "Mini Waffle", "Bowl", "Snacks", "Combo"]
+    assert [c["sort"] for c in menu["categories"]] == [0, 1, 2, 3, 4]
+    assert len(menu["items"]) == 20
     assert all(i["active"] for i in menu["items"])
     assert menu["items"][0]["code"] == "W01"
-    assert {i["category"] for i in menu["items"]} == {"Waffle", "Sandwich", "Combo", "Mini Waffle"}
+    assert {i["category"] for i in menu["items"]} == {"Waffle", "Mini Waffle", "Bowl", "Snacks", "Combo"}
 
     # No bills yet: empty day, empty dashboard with the single "no sales yet" tip.
     assert ok(client.get("/api/orders")) == []
     day = ok(client.get("/api/day-end"))
     assert (day["revenue"], day["orders"], day["payments"]) == (0, 0, [])
-    assert len(day["notSold"]) == 18
+    assert len(day["notSold"]) == 20
     dash = ok(client.get("/api/dashboard"))
     assert [i["title"] for i in dash["insights"]] == ["No sales yet this month"]
     assert dash["items"]["bestSeller"] is None
@@ -255,7 +255,7 @@ def test_every_admin_route_needs_a_token(client: TestClient) -> None:
     assert not guarded & open_routes
 
     # Nothing was changed by those attempts.
-    assert len(ok(client.get("/api/menu"))["items"]) == 18
+    assert len(ok(client.get("/api/menu"))["items"]) == 20
     assert config(client)["modules"]["gst"]["enabled"] is False
 
 
@@ -375,7 +375,7 @@ def test_owner_setup(client: TestClient) -> None:
     # --- Reorder: shakes first on the billing screen, cold coffee before oreo ---
     ok(client.post("/api/categories/reorder", headers=h, json={"ids": [shakes]}))
     cats = ok(client.get("/api/menu"))["categories"]
-    assert [c["name"] for c in cats] == ["Thick Shakes", "Waffle", "Sandwich", "Combo", "Mini Waffle"]
+    assert [c["name"] for c in cats] == ["Thick Shakes", "Waffle", "Mini Waffle", "Bowl", "Snacks", "Combo"]
     ok(client.post("/api/items/reorder", headers=h, json={"ids": [coffee, oreo]}))
     assert [i["code"] for i in ok(client.get("/api/menu"))["items"][:3]] == ["SH02", "SH01", "W01"]
 
@@ -461,29 +461,29 @@ def test_trading_day(client: TestClient) -> None:
     h = admin(client)
     set_module(client, h, "gst", enabled=True, settings={"rate": 5})  # discount cap stays at 20%
     menu = menu_items(client)
-    nutella, coffee_combo, classic = menu["W05"], menu["C01"], menu["W01"]
-    family, bites = menu["C03"], menu["M01"]
+    nutella, duo, classic = menu["W03"], menu["C02"], menu["W01"]
+    overload, bites = menu["C03"], menu["M01"]
     day = f"WB{clock.today():%y%m%d}"
 
     def bill(body: Json) -> Json:
         order: Json = ok(client.post("/api/orders", json=body))
         return order
 
-    # A: two Nutellas and a combo, UPI takeaway, ₹50 off (cap is 20% of 627 = 125.40).
+    # A: two Nutellas and a combo, UPI takeaway, ₹50 off (cap is 20% of 607 = 121.40).
     a = bill(
         {
-            "items": [{"item_id": nutella["id"], "qty": 2}, {"item_id": coffee_combo["id"]}],
+            "items": [{"item_id": nutella["id"], "qty": 2}, {"item_id": duo["id"]}],
             "payment_method": "upi",
             "order_type": "takeaway",
             "discount": 50,
             "customer_name": "Ravi",
         }
     )
-    assert_bill(a, expected_bill([(199, 2), (229, 1)], discount=50, gst=5))
+    assert_bill(a, expected_bill([(189, 2), (229, 1)], discount=50, gst=5))
     assert a["bill_no"] == f"{day}-001"
     assert [(i["name"], i["category"], i["price"], i["qty"]) for i in a["items"]] == [
-        ("Nutella", "Waffle", 199, 2),
-        ("Waffle + Cold Coffee", "Combo", 229, 1),
+        ("Nutella Waffle", "Waffle", 189, 2),
+        ("Waffle Duo", "Combo", 229, 1),
     ]
     assert (a["status"], a["source"], a["customer_name"], a["customer_phone"]) == (
         "paid",
@@ -503,19 +503,19 @@ def test_trading_day(client: TestClient) -> None:
     assert over.status_code == 400
     assert over.json()["error"].startswith("Discount can be at most 20% of the bill")
 
-    # C: Family Pack delivery by card, discount exactly at the cap (20% of 549 = 109.80).
+    # C: Chocolate Overload delivery by card, discount exactly at the cap (20% of 259 = 51.80).
     c = bill(
         {
-            "items": [{"item_id": family["id"]}],
+            "items": [{"item_id": overload["id"]}],
             "payment_method": "card",
             "order_type": "delivery",
-            "discount": 109.8,
+            "discount": 51.8,
             "customer_phone": "9876543210",
             "delivery_address": "Tower B, Flat 402",
             "note": "Ring twice",
         }
     )
-    assert_bill(c, expected_bill([(549, 1)], discount=109.8, gst=5))
+    assert_bill(c, expected_bill([(259, 1)], discount=51.8, gst=5))
     assert (c["delivery_address"], c["note"], c["bill_no"]) == (
         "Tower B, Flat 402",
         "Ring twice",
@@ -533,8 +533,8 @@ def test_trading_day(client: TestClient) -> None:
             "bill_no": "HACKED",
         }
     )
-    assert_bill(d, expected_bill([(99, 4)], gst=5))
-    assert (d["items"][0]["price"], d["items"][0]["name"]) == (99, bites["name"])
+    assert_bill(d, expected_bill([(89, 4)], gst=5))
+    assert (d["items"][0]["price"], d["items"][0]["name"]) == (89, bites["name"])
     assert (d["status"], d["bill_no"]) == ("paid", f"{day}-004")
 
     # An unknown item is refused.
@@ -553,7 +553,7 @@ def test_trading_day(client: TestClient) -> None:
             "order_type": "takeaway",
         }
     )
-    assert_bill(f, expected_bill([(199, 1), (129, 1)], gst=5))
+    assert_bill(f, expected_bill([(189, 1), (129, 1)], gst=5))
     assert f["bill_no"] == f"{day}-006"
 
     # With the discounts module off, any discount is refused; without one billing still works.
@@ -619,15 +619,15 @@ def test_trading_day(client: TestClient) -> None:
     assert end["cancelled"] == {"n": 1, "amount": pytest.approx(e["total"])}
     sold = {i["name"]: (i["qty"], i["revenue"], i["orders"]) for i in end["items"]}
     assert sold == {
-        "Nutella": (3, 597, 2),  # the cancelled Nutella doesn't count
-        "Family Pack (4 Waffles)": (1, 549, 1),
-        "Mini Waffle Bites Chocolate (6 pc)": (4, 396, 1),
-        "Classic Maple Butter": (2, 258, 2),
-        "Waffle + Cold Coffee": (1, 229, 1),
+        "Nutella Waffle": (3, 567, 2),  # the cancelled Nutella doesn't count
+        "Chocolate Overload": (1, 259, 1),
+        "Amul Dark Chocolate Mini Waffle": (4, 356, 1),
+        "Amul Dark Chocolate Waffle": (2, 258, 2),
+        "Waffle Duo": (1, 229, 1),
     }
     assert [i["revenue"] for i in end["items"]] == sorted((i["revenue"] for i in end["items"]), reverse=True)
-    assert len(end["notSold"]) == 18 - 5
-    assert "Nutella" not in {i["name"] for i in end["notSold"]}
+    assert len(end["notSold"]) == 20 - 5
+    assert "Nutella Waffle" not in {i["name"] for i in end["notSold"]}
     # Yesterday is empty.
     assert ok(client.get(f"/api/day-end?date={clock.today() - timedelta(days=1)}"))["orders"] == 0
 
@@ -698,9 +698,9 @@ def test_trading_day(client: TestClient) -> None:
     assert (this_month["revenue"], this_month["orders"]) == (pytest.approx(revenue), 5)
     assert (this_month["target"], this_month["expenses"]) == (target, expenses_total)
     assert charts["categorySplit"] == [
-        {"name": "Waffle", "value": 597 + 258, "qty": 5},
-        {"name": "Combo", "value": 229 + 549, "qty": 2},
-        {"name": "Mini Waffle", "value": 396, "qty": 4},
+        {"name": "Waffle", "value": 567 + 258, "qty": 5},
+        {"name": "Combo", "value": 229 + 259, "qty": 2},
+        {"name": "Mini Waffle", "value": 356, "qty": 4},
     ]
     split = {p["name"]: (p["value"], p["orders"]) for p in charts["paymentSplit"]}
     assert split == {method: (amount, n) for method, (amount, n) in payments.items()}
@@ -719,7 +719,7 @@ def test_trading_day(client: TestClient) -> None:
     assert any("Nutella" in i["title"] + i["text"] for i in insights)
 
     # --- Item stats: the same numbers for every period on a one-day-old shop ---
-    line_total = 597 + 549 + 396 + 258 + 229
+    line_total = 567 + 259 + 356 + 258 + 229
     tomorrow = f"{today + timedelta(days=1)}"
     starts = {
         "today": today_s(),
@@ -731,20 +731,20 @@ def test_trading_day(client: TestClient) -> None:
     for period, start in starts.items():
         stats = ok(client.get(f"/api/items/stats?period={period}"))
         assert (stats["period"], stats["from"], stats["to"]) == (period, start, tomorrow)
-        assert len(stats["items"]) == 18
-        assert stats["bestSeller"]["name"] == "Nutella"  # most revenue: 597
-        assert stats["mostPopular"]["name"] == "Mini Waffle Bites Chocolate (6 pc)"  # most units: 4
-        assert stats["customerFavourite"]["name"] == "Nutella"  # on 2 bills (ties with Classic, more revenue)
+        assert len(stats["items"]) == 20
+        assert stats["bestSeller"]["name"] == "Nutella Waffle"  # most revenue: 567
+        assert stats["mostPopular"]["name"] == "Amul Dark Chocolate Mini Waffle"  # most units: 4
+        assert stats["customerFavourite"]["name"] == "Nutella Waffle"  # 2 bills, ties W01 on more revenue
         n = stats["bestSeller"]
-        assert (n["qty"], n["orders"], n["revenue"]) == (3, 2, 597)
-        assert n["share"] == pytest.approx(money(597 / line_total * 100))
-        assert n["margin"] == pytest.approx(money((199 - 70) / 199 * 100))
+        assert (n["qty"], n["orders"], n["revenue"]) == (3, 2, 567)
+        assert n["share"] == pytest.approx(money(567 / line_total * 100))
+        assert n["margin"] == pytest.approx(money((189 - 67) / 189 * 100))
         assert [i["name"] for i in stats["topByRevenue"]] == [
-            "Nutella",
-            "Family Pack (4 Waffles)",
-            "Mini Waffle Bites Chocolate (6 pc)",
-            "Classic Maple Butter",
-            "Waffle + Cold Coffee",
+            "Nutella Waffle",
+            "Amul Dark Chocolate Mini Waffle",
+            "Chocolate Overload",
+            "Amul Dark Chocolate Waffle",
+            "Waffle Duo",
         ]
         assert [i["qty"] for i in stats["topByQty"]] == [4, 3, 2, 1, 1]
         assert len(stats["slowMovers"]) == 5
@@ -766,42 +766,42 @@ def test_gst_is_rounded_half_up(client: TestClient) -> None:
 
 
 def test_discount_cap_message_uses_indian_rupees(client: TestClient) -> None:
-    family = menu_items(client)["C03"]["id"]  # 549 x 999 = 5,48,451; 20% cap = 1,09,690.20
+    family = menu_items(client)["C05"]["id"]  # 569 x 999 = 5,68,431; 20% cap = 1,13,686.20
     r = client.post("/api/orders", json={"items": [{"item_id": family, "qty": 999}], "discount": 200000})
     assert r.status_code == 400
-    assert r.json()["error"] == "Discount can be at most 20% of the bill (₹1,09,690)"
+    assert r.json()["error"] == "Discount can be at most 20% of the bill (₹1,13,686)"
 
 
 def test_huge_but_valid_order(client: TestClient) -> None:
-    family = menu_items(client)["C03"]["id"]
+    family = menu_items(client)["C05"]["id"]
     order = ok(
-        client.post("/api/orders", json={"items": [{"item_id": family, "qty": 999}], "discount": 109690})
+        client.post("/api/orders", json={"items": [{"item_id": family, "qty": 999}], "discount": 113686})
     )
-    assert_bill(order, expected_bill([(549, 999)], discount=109690))
+    assert_bill(order, expected_bill([(569, 999)], discount=113686))
     # The same item on two lines stays as two lines.
     twice = ok(
         client.post("/api/orders", json={"items": [{"item_id": family}, {"item_id": family, "qty": 2}]})
     )
     assert [i["qty"] for i in twice["items"]] == [1, 2]
-    assert twice["subtotal"] == 549 * 3
+    assert twice["subtotal"] == 569 * 3
 
 
 def test_hidden_items_cannot_be_billed(client: TestClient) -> None:
     h = admin(client)
-    nutella = menu_items(client)["W05"]["id"]
+    nutella = menu_items(client)["W03"]["id"]
     ok(client.post("/api/orders", json={"items": [{"item_id": nutella}]}))
     assert ok(client.delete(f"/api/items/{nutella}", headers=h))["hidden"] is True
     r = client.post("/api/orders", json={"items": [{"item_id": nutella}]})
     assert (r.status_code, r.json()) == (
         400,
-        {"error": "Nutella is hidden from the menu and can't be billed"},
+        {"error": "Nutella Waffle is hidden from the menu and can't be billed"},
     )
     # Bringing it back makes it billable again.
     item = {
-        k: v for k, v in menu_items(client)["W05"].items() if k in ("code", "name", "category_id", "price")
+        k: v for k, v in menu_items(client)["W03"].items() if k in ("code", "name", "category_id", "price")
     }
     ok(client.put(f"/api/items/{nutella}", headers=h, json={**item, "active": True}))
-    assert ok(client.post("/api/orders", json={"items": [{"item_id": nutella}]}))["total"] == 199
+    assert ok(client.post("/api/orders", json={"items": [{"item_id": nutella}]}))["total"] == 189
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1139,11 +1139,11 @@ def test_backup_contains_the_orders(client: TestClient, tmp_path: Path) -> None:
     assert client.get("/api/backup").status_code == 401
     h = admin(client)
     set_module(client, h, "gst", enabled=True)
-    w05 = menu_items(client)["W05"]["id"]
+    w03 = menu_items(client)["W03"]["id"]
     kept = ok(
-        client.post("/api/orders", json={"items": [{"item_id": w05, "qty": 2}], "payment_method": "upi"})
+        client.post("/api/orders", json={"items": [{"item_id": w03, "qty": 2}], "payment_method": "upi"})
     )
-    gone = ok(client.post("/api/orders", json={"items": [{"item_id": w05}]}))
+    gone = ok(client.post("/api/orders", json={"items": [{"item_id": w03}]}))
     ok(client.post(f"/api/orders/{gone['id']}/cancel", headers=h))
     ok(client.post("/api/expenses", headers=h, json={"category": "rent", "amount": 25000, "recurring": True}))
 
@@ -1164,8 +1164,8 @@ def test_backup_contains_the_orders(client: TestClient, tmp_path: Path) -> None:
             (gone["bill_no"], gone["total"], "cancelled"),
         ]
         lines = db.execute("SELECT name, price, qty FROM order_items ORDER BY id").fetchall()
-        assert lines == [("Nutella", 199.0, 2), ("Nutella", 199.0, 1)]
-        assert db.execute("SELECT count(*) FROM items").fetchone() == (18,)
+        assert lines == [("Nutella Waffle", 189.0, 2), ("Nutella Waffle", 189.0, 1)]
+        assert db.execute("SELECT count(*) FROM items").fetchone() == (20,)
         assert db.execute("SELECT amount, recurring FROM expenses").fetchall() == [(25000.0, 1)]
         settings = dict(db.execute("SELECT key, value FROM settings").fetchall())
         assert settings["module:gst:enabled"] == "1"
@@ -1229,7 +1229,7 @@ def test_data_survives_restart(tmp_path: Path) -> None:
         assert ok(c.post("/api/admin/login", json={"pin": "97531"}))["must_change_pin"] is False
 
         # The menu isn't re-seeded and bill numbers carry on from the cancelled one.
-        assert len(menu_items(c)) == 19
+        assert len(menu_items(c)) == 21
         third = ok(c.post("/api/orders", json={"items": [{"item_id": menu_items(c)["SH01"]["id"]}]}))
         assert third["bill_no"] == f"WB{clock.today():%y%m%d}-003"
         assert ok(c.get("/api/day-end"))["cancelled"]["n"] == 1
@@ -1279,7 +1279,7 @@ def test_front_end_built(tmp_path: Path) -> None:
         assert "not for you" not in c.get("/../secret.txt").text
         assert "not for you" not in c.get("/%2e%2e/secret.txt").text
         # The API still answers JSON next to the SPA.
-        assert len(ok(c.get("/api/menu"))["items"]) == 18
+        assert len(ok(c.get("/api/menu"))["items"]) == 20
         assert ok(c.post("/api/orders", json={"items": [{"item_id": 1}]}))["total"] == 129
 
 

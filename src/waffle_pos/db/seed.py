@@ -1,32 +1,39 @@
-"""First-run starter menu. Prices are placeholders; the owner edits them in Settings -> Menu."""
+"""First-run menu: the launch menu agreed in Nov 2026 (all veg and eggless).
+
+Costs and prices come from the menu costing sheet (menu-costing/pos-menu-costs.csv).
+This only fills an empty database; after that the owner edits the menu in Admin -> Menu.
+"""
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from waffle_pos.db.models import Category, Item
 
-CATEGORIES = ["Waffle", "Sandwich", "Combo", "Mini Waffle"]
+CATEGORIES = ["Waffle", "Mini Waffle", "Bowl", "Snacks", "Combo"]
 
-# code, name, category, price, ingredient cost
+# code, name, category, price, cost (ingredients + packaging), in menu order.
+# Combos: C01 S01+M01, C02 W01+W02, C03 W04+B01, C04 M01+M02+M03, C05 W01+W03+M01+M02+2x S02.
 STARTER_MENU: list[tuple[str, str, str, float, float]] = [
-    ("W01", "Classic Maple Butter", "Waffle", 129, 40),
-    ("W02", "Dark Chocolate", "Waffle", 149, 48),
-    ("W03", "Milk Chocolate", "Waffle", 149, 46),
-    ("W04", "Triple Chocolate", "Waffle", 189, 62),
-    ("W05", "Nutella", "Waffle", 199, 70),
-    ("W06", "KitKat Crunch", "Waffle", 189, 60),
-    ("W07", "Red Velvet Cream Cheese", "Waffle", 199, 66),
-    ("W08", "Lotus Biscoff", "Waffle", 219, 78),
-    ("W09", "Honey Banana", "Waffle", 159, 45),
-    ("S01", "Veg Grilled Waffle Sandwich", "Sandwich", 139, 42),
-    ("S02", "Paneer Tikka Waffle Sandwich", "Sandwich", 169, 55),
-    ("S03", "Cheese Corn Waffle Sandwich", "Sandwich", 149, 45),
-    ("C01", "Waffle + Cold Coffee", "Combo", 229, 75),
-    ("C02", "Any 2 Waffles (Duo)", "Combo", 299, 100),
-    ("C03", "Family Pack (4 Waffles)", "Combo", 549, 190),
-    ("M01", "Mini Waffle Bites Chocolate (6 pc)", "Mini Waffle", 99, 30),
-    ("M02", "Mini Waffle Bites Nutella (6 pc)", "Mini Waffle", 129, 42),
-    ("M03", "Mini Pancake Bites (10 pc)", "Mini Waffle", 109, 32),
+    ("W01", "Amul Dark Chocolate Waffle", "Waffle", 129, 46),
+    ("W02", "White Chocolate Waffle", "Waffle", 129, 45),
+    ("W03", "Nutella Waffle", "Waffle", 189, 67),
+    ("W04", "Triple Chocolate Waffle", "Waffle", 159, 52),
+    ("M01", "Amul Dark Chocolate Mini Waffle", "Mini Waffle", 89, 29),
+    ("M02", "White Chocolate Mini Waffle", "Mini Waffle", 89, 29),
+    ("M03", "Nutella Mini Waffle", "Mini Waffle", 119, 42),
+    ("B01", "Amul Dark Chocolate Bowl", "Bowl", 129, 45),
+    ("B02", "White Chocolate Bowl", "Bowl", 129, 44),
+    ("B03", "Nutella Bowl", "Bowl", 179, 62),
+    ("S01", "Veg Sandwich", "Snacks", 59, 22),
+    ("S02", "Veg Cheese Sandwich", "Snacks", 79, 30),
+    ("S03", "Corn Sandwich", "Snacks", 89, 34),
+    ("S04", "Paneer Patties", "Snacks", 45, 21),
+    ("S05", "Aaloo Patties", "Snacks", 29, 15),
+    ("C01", "Snack Break", "Combo", 129, 51),
+    ("C02", "Waffle Duo", "Combo", 229, 91),
+    ("C03", "Chocolate Overload", "Combo", 259, 96),
+    ("C04", "Mini Party", "Combo", 249, 98),
+    ("C05", "Family Feast", "Combo", 569, 222),
 ]
 
 

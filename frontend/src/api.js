@@ -138,5 +138,5 @@ export const today = () => {
 export const thisMonth = () => today().slice(0, 7);
 
 // Category colours (validated for colour-blind separation) and item placeholders.
-export const SERIES = ['#B97A10', '#7E4FB0', '#0092A0', '#D04A3A'];
-export const EMOJI = { Waffle: '🧇', Sandwich: '🥪', Combo: '🥤', 'Mini Waffle': '🍪' };
+export const SERIES = ['#B97A10', '#7E4FB0', '#0092A0', '#D04A3A', '#5A6B7A'];
+export const EMOJI = { Waffle: '🧇', 'Mini Waffle': '🍪', Bowl: '🥣', Snacks: '🥪', Combo: '🎁' };
