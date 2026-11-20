@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CARDS, LAYOUT_KEY, defaultLayout, sanitize, moveCard, dropCard, resizeCard, setHidden,
-  isDefault, loadLayout, saveLayout, widthLabel,
+  CARDS, LAYOUT_KEY, MAX_HEIGHT, MIN_HEIGHT, defaultLayout, sanitize, moveCard, dropCard, resizeCard, setHidden,
+  isDefault, loadLayout, saveLayout, widthLabel, heightLabel, setSize, snapWidth, snapHeight,
 } from './layout.js';
 
 const ids = CARDS.map((c) => c.id);
@@ -25,6 +25,7 @@ test('default layout lists every card once with its default width', () => {
   assert.equal(l.width.target, 12);
   assert.equal(l.width.items, 7);
   assert.deepEqual(l.hidden, []);
+  assert.deepEqual(l.height, {});
 });
 
 test('sanitize falls back to the default for junk', () => {
@@ -80,7 +81,9 @@ test('resizeCard steps through the allowed widths and stops at the ends', () => 
   let l = defaultLayout();
   l = resizeCard(l, 'items', +1);
   assert.equal(l.width.items, 8);
-  l = resizeCard(resizeCard(l, 'items', +1), 'items', +1);
+  for (let i = 0; i < 3; i++) l = resizeCard(l, 'items', +1);
+  assert.equal(l.width.items, 11);
+  l = resizeCard(l, 'items', +1);
   assert.equal(l.width.items, 12);
   assert.equal(resizeCard(l, 'items', +1), l);
   let s = defaultLayout();
@@ -120,4 +123,52 @@ test('load survives broken JSON and blocked storage', () => {
   assert.deepEqual(loadLayout(blocked), defaultLayout());
   assert.equal(saveLayout(moveCard(defaultLayout(), 'payments', 0), blocked), false);
   assert.deepEqual(loadLayout(undefined), defaultLayout());
+});
+
+test('snapWidth picks the nearest allowed width', () => {
+  assert.equal(snapWidth(6.4), 6);
+  assert.equal(snapWidth(6.6), 7);
+  assert.equal(snapWidth(0), 3);
+  assert.equal(snapWidth(-5), 3);
+  assert.equal(snapWidth(40), 12);
+  assert.equal(snapWidth(NaN), 12);
+});
+
+test('snapHeight rounds to 10 px within limits; null means automatic', () => {
+  assert.equal(snapHeight(423), 420);
+  assert.equal(snapHeight(5), MIN_HEIGHT);
+  assert.equal(snapHeight(99999), MAX_HEIGHT);
+  assert.equal(snapHeight(null), null);
+  assert.equal(snapHeight(Infinity), null);
+});
+
+test('setSize changes width and height, and null height goes back to automatic', () => {
+  let l = setSize(defaultLayout(), 'sales', { width: 9.7, height: 512 });
+  assert.equal(l.width.sales, 10);
+  assert.equal(l.height.sales, 510);
+  assert.ok(!isDefault(l));
+  l = setSize(l, 'sales', { width: 8 });
+  assert.equal(l.height.sales, 510); // height kept when only the width changes
+  l = setSize(l, 'sales', { height: null });
+  assert.equal('sales' in l.height, false);
+  assert.ok(isDefault(l));
+  const same = defaultLayout();
+  assert.equal(setSize(same, 'sales', { width: 8 }), same);
+  assert.equal(setSize(same, 'ghost', { width: 4 }), same);
+});
+
+test('sanitize keeps only sensible heights', () => {
+  const l = sanitize({ order: ids, height: { sales: 400, items: 20, expenses: 'tall', calendar: 99999, ghost: 300, target: 412.5 } });
+  assert.deepEqual(l.height, { sales: 400 });
+  assert.deepEqual(sanitize({ order: ids, height: 'x' }).height, {});
+});
+
+test('a saved layout with heights round-trips', () => {
+  const store = new Map();
+  const s = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  const l = setSize(defaultLayout(), 'calendar', { width: 6, height: 700 });
+  saveLayout(l, s);
+  assert.deepEqual(loadLayout(s), l);
+  assert.equal(heightLabel(null), 'Auto height');
+  assert.equal(heightLabel(700), '700px tall');
 });

@@ -24,6 +24,7 @@ from waffle_pos.services.orders import cancel_order, create_order
 from waffle_pos.services.targets import TargetInput, compute
 
 NOW = datetime(2026, 11, 18, 15, 30)  # a Wednesday
+EN = "\u2013"  # en dash, as in week labels like 16-22 Nov
 
 
 def _id(session: Session, code: str) -> int:
@@ -153,6 +154,7 @@ def test_target_summary_empty_month(db_session: Session) -> None:
 def test_item_stats_month(shop: Session) -> None:
     st = item_stats(shop, "month", NOW)
     assert (st["period"], st["from"], st["to"]) == ("month", "2026-11-01", "2026-11-19")
+    assert (st["bills"], st["revenue"]) == (4, 805)  # the cancelled bill is left out
     assert len(st["items"]) == 20
     by_code = {i["code"]: i for i in st["items"]}
     w01 = by_code["W01"]
@@ -175,6 +177,7 @@ def test_item_stats_periods(shop: Session) -> None:
     today = item_stats(shop, "today", NOW)
     assert (today["from"], today["to"]) == ("2026-11-18", "2026-11-19")
     assert [(i["code"], i["qty"]) for i in today["topByQty"]] == [("W01", 1)]
+    assert today["bills"] == 1
 
     week = item_stats(shop, "week", NOW)  # rolling 7 days: 12-18 Nov
     assert week["from"] == "2026-11-12"
@@ -182,6 +185,8 @@ def test_item_stats_periods(shop: Session) -> None:
 
     all_time = item_stats(shop, "all", NOW)
     assert all_time["from"] == "0000-00-00"
+    assert all_time["bills"] == 5
+    assert all_time["revenue"] == 159 + 805
     assert {i["code"] for i in all_time["topByQty"]} == {"W01", "W04", "W03", "C02"}
 
     thirty = item_stats(shop, "30d", NOW)
@@ -259,21 +264,44 @@ def test_charts(shop: Session) -> None:
 
     weekly = c["weekly"]
     assert len(weekly) == 5  # from the week of the first sale (Mon 19 Oct), not 12 empty weeks
-    assert weekly[-1] == {"week": "16 Nov", "start": "2026-11-16", "revenue": 229 + 129, "orders": 2}
-    assert weekly[-2] == {"week": "9 Nov", "start": "2026-11-09", "revenue": 258 + 189, "orders": 2}
-    assert weekly[0] == {"week": "19 Oct", "start": "2026-10-19", "revenue": 159, "orders": 1}
+    assert weekly[-1] == {
+        "week": "16 Nov",
+        "start": "2026-11-16",
+        "end": "2026-11-22",
+        "label": f"16{EN}22 Nov",
+        "current": True,
+        "revenue": 229 + 129,
+        "orders": 2,
+    }
+    assert weekly[-2] | {"current": None} == {
+        "week": "9 Nov",
+        "start": "2026-11-09",
+        "end": "2026-11-15",
+        "label": f"9{EN}15 Nov",
+        "current": None,
+        "revenue": 258 + 189,
+        "orders": 2,
+    }
+    assert weekly[-2]["current"] is False
+    assert (weekly[0]["label"], weekly[0]["revenue"], weekly[0]["orders"]) == (f"19{EN}25 Oct", 159, 1)
+    assert weekly[2]["label"] == f"2{EN}8 Nov"
+    assert weekly[1]["label"] == f"26 Oct {EN} 1 Nov"  # crosses a month
+    assert sum(w["revenue"] for w in weekly) == 159 + 805  # every paid bill lands in one week
 
     monthly = c["monthly"]
     assert [m["key"] for m in monthly] == ["2026-10", "2026-11"]  # from the month of the first sale
     assert monthly[-1] == {
         "month": "Nov 26",
+        "label": "Nov 2026",
         "key": "2026-11",
+        "current": True,
         "revenue": 805,
         "orders": 4,
         "target": 50_000,
         "expenses": 23_000,
     }
     assert monthly[-2]["revenue"] == 159
+    assert (monthly[-2]["label"], monthly[-2]["current"]) == ("Oct 2026", False)
     assert monthly[-2]["expenses"] == 20_500
 
     assert c["categorySplit"] == [
