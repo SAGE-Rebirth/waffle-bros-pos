@@ -264,9 +264,31 @@ def _weekly(session: Session, today: date, first: date | None) -> list[dict[str,
     out: list[dict[str, Any]] = []
     for i in range(weeks - 1, -1, -1):
         ws = this_week - timedelta(days=7 * i)
+        we = ws + timedelta(days=6)
         rev, n = _revenue_between(session, ws, ws + timedelta(days=7))
-        out.append({"week": f"{ws.day} {ws:%b}", "start": ws.isoformat(), "revenue": money(rev), "orders": n})
+        out.append(
+            {
+                "week": f"{ws.day} {ws:%b}",
+                "start": ws.isoformat(),
+                "end": we.isoformat(),
+                "label": week_label(ws),
+                "current": i == 0,
+                "revenue": money(rev),
+                "orders": n,
+            }
+        )
     return out
+
+
+EN_DASH = "\u2013"
+
+
+def week_label(monday: date) -> str:
+    """'16-22 Nov' (with an en dash) for a Monday-to-Sunday week, '30 Nov - 6 Dec' across months."""
+    sunday = monday + timedelta(days=6)
+    if monday.month == sunday.month:
+        return f"{monday.day}{EN_DASH}{sunday.day} {sunday:%b}"
+    return f"{monday.day} {monday:%b} {EN_DASH} {sunday.day} {sunday:%b}"
 
 
 def monthly_summary(session: Session, today: date, since: date | None = None) -> list[dict[str, Any]]:
@@ -285,7 +307,9 @@ def monthly_summary(session: Session, today: date, since: date | None = None) ->
         out.append(
             {
                 "month": f"{ms:%b} {ms:%y}",
+                "label": f"{ms:%b} {ms:%Y}",
                 "key": key,
+                "current": i == 0,
                 "revenue": money(rev),
                 "orders": n,
                 "target": get_target(session, key),
@@ -452,6 +476,7 @@ def item_stats(session: Session, period: str, now: datetime) -> dict[str, Any]:
         .outerjoin(sales, sales.c.item_id == Item.id)
         .order_by(Item.sort, Item.id)
     ).all()
+    bills = session.execute(select(func.count(Order.id)).where(*_paid_between(start, end))).scalar_one()
     total_revenue = sum(float(r[9]) for r in rows)
     items: list[dict[str, Any]] = [
         {
@@ -480,6 +505,8 @@ def item_stats(session: Session, period: str, now: datetime) -> dict[str, Any]:
         "period": period,
         "from": start.isoformat() if start else "0000-00-00",
         "to": end.isoformat(),
+        "bills": int(bills),
+        "revenue": money(total_revenue),
         "items": items,
         "bestSeller": next(iter(by("revenue")), None),  # most money earned
         "mostPopular": next(iter(by("qty")), None),  # most units sold

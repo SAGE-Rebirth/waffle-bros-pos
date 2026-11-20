@@ -5,7 +5,11 @@
 export const LAYOUT_KEY = 'wb-dashboard-layout-v1';
 
 // Widths are columns of the 12-column dashboard grid. Below 1100px wide every card is full width.
-export const WIDTHS = [3, 4, 5, 6, 7, 8, 9, 12];
+export const WIDTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+// A card's height is automatic (fits its content) unless it was dragged to a height, in pixels.
+export const MIN_HEIGHT = 160;
+export const MAX_HEIGHT = 2000;
+const HEIGHT_STEP = 10;
 
 // The cards on the dashboard, in their default order and width.
 export const CARDS = [
@@ -27,6 +31,7 @@ export function defaultLayout() {
   return {
     order: CARDS.map((c) => c.id),
     width: Object.fromEntries(CARDS.map((c) => [c.id, c.width])),
+    height: {},
     hidden: [],
   };
 }
@@ -57,9 +62,16 @@ export function sanitize(raw) {
   if (raw.width && typeof raw.width === 'object') {
     for (const id of order) if (WIDTHS.includes(raw.width[id])) width[id] = raw.width[id];
   }
+  const height = {};
+  if (raw.height && typeof raw.height === 'object') {
+    for (const id of order) {
+      const h = raw.height[id];
+      if (Number.isInteger(h) && h >= MIN_HEIGHT && h <= MAX_HEIGHT) height[id] = h;
+    }
+  }
   const hidden = Array.isArray(raw.hidden) ? [...new Set(raw.hidden.filter((id) => BY_ID.has(id)))] : [];
   // Never hide every card: an empty dashboard looks broken.
-  return { order, width, hidden: hidden.length >= order.length ? [] : hidden };
+  return { order, width, height, hidden: hidden.length >= order.length ? [] : hidden };
 }
 
 /** Move a card from one place in the order to another. */
@@ -88,6 +100,34 @@ export function resizeCard(layout, id, step) {
   return next === layout.width[id] ? layout : { ...layout, width: { ...layout.width, [id]: next } };
 }
 
+/** The allowed width closest to `cols` (what dragging a card's side snaps to). */
+export function snapWidth(cols) {
+  if (!Number.isFinite(cols)) return 12;
+  return WIDTHS.reduce((best, w) => (Math.abs(w - cols) < Math.abs(best - cols) ? w : best), WIDTHS[0]);
+}
+
+/** A height in pixels rounded and kept within limits; null (or not a number) means automatic. */
+export function snapHeight(px) {
+  if (px == null || !Number.isFinite(px)) return null;
+  return Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(px / HEIGHT_STEP) * HEIGHT_STEP));
+}
+
+/**
+ * Set a card's size, as dragging its edge or corner does. `width` is in grid columns, `height` in
+ * pixels or null for automatic; either can be left undefined to keep it.
+ */
+export function setSize(layout, id, { width, height } = {}) {
+  if (!layout.order.includes(id)) return layout;
+  const w = width === undefined ? layout.width[id] : snapWidth(width);
+  const cur = layout.height?.[id] ?? null;
+  const h = height === undefined ? cur : snapHeight(height);
+  if (w === layout.width[id] && h === cur) return layout;
+  const nextHeight = { ...(layout.height || {}) };
+  if (h == null) delete nextHeight[id];
+  else nextHeight[id] = h;
+  return { ...layout, width: { ...layout.width, [id]: w }, height: nextHeight };
+}
+
 export function setHidden(layout, id, hide) {
   const hidden = layout.hidden.filter((h) => h !== id);
   if (hide) {
@@ -103,6 +143,7 @@ export function isDefault(layout) {
 
 /** "58%" style label for a width. */
 export const widthLabel = (w) => (w === 12 ? 'Full' : `${Math.round((w / 12) * 100)}%`);
+export const heightLabel = (h) => (h == null ? 'Auto height' : `${h}px tall`);
 
 export const cardTitle = (id) => BY_ID.get(id)?.title ?? id;
 

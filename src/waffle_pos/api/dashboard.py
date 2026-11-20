@@ -23,6 +23,7 @@ PeriodQuery = Annotated[
 
 _ITEM_STATS_KEYS = (
     "`period`, `from`, `to` (shop-local dates; `to` is exclusive, `from` is `0000-00-00` for `all`), "
+    "`bills` (paid bills in the period), `revenue` (item revenue in the period), "
     "`items` (every menu item with `qty`, `orders`, `revenue`, `share` % of item revenue and `margin` % "
     "or null), `bestSeller` (most revenue), `mostPopular` (most units), `customerFavourite` (in the most "
     "bills), `topByRevenue`, `topByQty` (top 5 each) and `slowMovers` (5 active items selling least)."
@@ -43,7 +44,8 @@ def dashboard(db: DB, period: PeriodQuery = "month") -> dict[str, Any]:
       `requiredDailyFromTomorrow`, `avgDaily`, `projected`, `aov`, `netProfit`, break-even figures
       and an `expenses` breakdown.
     - `charts`: arrays `hourly` (today vs 28-day average), `daily` (this month, with even-pace line),
-      `weekly` (12 weeks), `monthly` (12 months with target and expenses), `categorySplit`,
+      `weekly` (up to 12 weeks, each with `label` like `16-22 Nov` and `current`), `monthly` (up to
+      12 months with target, expenses, `label` like `Nov 2026` and `current`), `categorySplit`,
       `paymentSplit` and `weekday` (8-week average per weekday).
     - `insights`: plain-English tips, each `{tone: good|warn|info, title, text}`.
     - `items`: the same object as `GET /api/items/stats` for `period`.

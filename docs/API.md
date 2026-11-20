@@ -458,8 +458,8 @@ Worked check with the numbers above: `revenueBeforeToday` = 77,471 - 447 = 77,02
 | `hourly` | One per hour from opening hour to closing hour (widened if a sale fell outside). A bill counts in the hour it was made: 18:49 is in `18` (`"6pm"`, 6-7pm). | `hour` (0-23), `label` (`"8pm"`), `today` (₹ this hour today), `todayOrders`, `average` (₹ in this hour over the previous 28 days / number of days that had sales), `avgOrders` (same, for bill count) |
 | `hourlyDays` | A number | How many days with sales the hourly `average` is based on (0: no history yet, so `average` is 0) |
 | `daily` | Every day of this month | `day` (1-31), `date`, `revenue`, `orders`, `cumulative` (running total), all `null` for future days; `pace` (even-pace cumulative target: `target / daysInMonth x day`), `dailyTarget` (`target / daysInMonth`) |
-| `weekly` | Up to the last 12 weeks, Monday to Sunday, oldest first, starting no earlier than the week of the first paid bill (just this week before any sale) | `week` (`"31 Aug"`), `start` (Monday's date), `revenue`, `orders` |
-| `monthly` | Up to the last 12 months, oldest first, starting no earlier than the month of the first paid bill (just this month before any sale) | `month` (`"Nov 26"`), `key` (`"2026-11"`), `revenue`, `orders`, `target`, `expenses` (that month's total) |
+| `weekly` | Up to the last 12 weeks, Monday to Sunday, oldest first, starting no earlier than the week of the first paid bill (just this week before any sale) | `week` (`"31 Aug"`), `start` (Monday's date), `end` (Sunday's date), `label` (`"16–22 Nov"`, or `"30 Nov – 6 Dec"` across months), `current` (this week, still in progress), `revenue`, `orders` |
+| `monthly` | Up to the last 12 months, oldest first, starting no earlier than the month of the first paid bill (just this month before any sale) | `month` (`"Nov 26"`, kept for older screens), `label` (`"Nov 2026"`), `key` (`"2026-11"`), `current` (this month, still in progress), `revenue`, `orders`, `target`, `expenses` (that month's total) |
 | `categorySplit` | Categories sold this month, biggest first | `name`, `value` (₹ line value), `qty` |
 | `paymentSplit` | Payment methods this month, biggest first | `name` (`upi`/`cash`/`card`), `value` (₹ bill totals), `orders` |
 | `weekday` | Mon..Sun | `day` (`"Mon"`), `average` (₹ per trading day of that weekday over the last 8 weeks, before today; 0 if none), `days` (how many such days) |
@@ -472,8 +472,8 @@ Worked check with the numbers above: `revenueBeforeToday` = 77,471 - 447 = 77,02
     ...,
     {"day": 30, "date": "2026-11-30", "revenue": null, "orders": null, "cumulative": null, "pace": 100000.0, "dailyTarget": 3333.33}
   ],
-  "weekly": [{"week": "28 Sep", "start": "2026-09-28", "revenue": 9876.0, "orders": 38}, ...],
-  "monthly": [{"month": "Oct 26", "key": "2026-10", "revenue": 68112.0, "orders": 309, "target": 100000.0, "expenses": 91813.0}, ...],
+  "weekly": [{"week": "28 Sep", "start": "2026-09-28", "end": "2026-10-04", "label": "28 Sep – 4 Oct", "current": false, "revenue": 9876.0, "orders": 38}, ...],
+  "monthly": [{"month": "Oct 26", "label": "Oct 2026", "key": "2026-10", "current": false, "revenue": 68112.0, "orders": 309, "target": 100000.0, "expenses": 91813.0}, ...],
   "categorySplit": [{"name": "Waffle", "value": 46909.0, "qty": 261}, {"name": "Combo", "value": 18564.0, "qty": 56}, ...],
   "paymentSplit": [{"name": "upi", "value": 51831.0, "orders": 133}, {"name": "cash", "value": 20545.0, "orders": 61}, ...],
   "weekday": [{"day": "Mon", "average": 2316.14, "days": 7}, {"day": "Tue", "average": 2832.0, "days": 7}, ...]
@@ -512,6 +512,8 @@ formatting (`₹1,35,925`). Logic: `src/waffle_pos/services/insights.py`.
 | --- | --- |
 | `period` | As requested |
 | `from`, `to` | Date range; `to` is **exclusive** (tomorrow). `from` is `"0000-00-00"` for `all`. |
+| `bills` | Paid bills in the period |
+| `revenue` | Item revenue in the period (sum of `items[].revenue`) |
 | `items` | Every menu item (sold or not, hidden ones included), sorted by revenue then qty |
 | `bestSeller` | Item with the most revenue (`null` if nothing sold) |
 | `mostPopular` | Item with the most units sold |
@@ -532,6 +534,8 @@ curl 'http://localhost:4000/api/items/stats?period=month'
   "period": "month",
   "from": "2026-11-01",
   "to": "2026-11-19",
+  "bills": 207,
+  "revenue": 77762.0,
   "items": [
     {"id": 5, "code": "W05", "name": "Nutella", "category": "Waffle", "price": 199.0, "cost": 70.0,
      "active": true, "qty": 46, "orders": 38, "revenue": 9154.0, "share": 11.77, "margin": 64.82},
