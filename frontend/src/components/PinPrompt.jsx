@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { adminSession, api, PIN_NEEDED_EVENT } from '../api.js';
+import { api, PIN_NEEDED_EVENT } from '../api.js';
 
 // Asks for the admin PIN when a counter action needs it (cancel a bill, expenses, targets).
-// Any part of the app can open it with requirePin() from api.js.
+// Any part of the app can open it with requirePin() from api.js. The token it gets lasts two
+// minutes and is handed to that one action only; it is never saved on the tablet.
 export default function PinPrompt() {
   const [ask, setAsk] = useState(null); // { reason, resolve, reject }
   const [pin, setPin] = useState('');
@@ -24,8 +25,7 @@ export default function PinPrompt() {
     if (pin.length < 4 || busy) return;
     setBusy(true); setErr('');
     try {
-      const r = await api.post('/api/admin/login', { pin });
-      adminSession.set(r);
+      const r = await api.post('/api/admin/login', { pin, once: true });
       ask.resolve(r);
       setAsk(null);
     } catch (e2) {

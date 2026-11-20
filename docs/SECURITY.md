@@ -60,13 +60,16 @@ exposes data needs the owner's PIN.
 | `POST /api/sync` | Each call triggers outbound traffic and could duplicate rows. Only the Admin page uses it. |
 | `GET /api/backup` | The whole database: customer phones, the PIN hash and the token secret. |
 | `GET /api/admin/modules`, `PUT /api/admin/modules/{key}`, `GET /api/admin/google-sheet/script` | Settings, including the Sheet secret. |
-| `POST /api/admin/pin` | Needs a signed-in token. This is the only route a default-PIN token can use. |
+| `POST /api/admin/pin` | Needs a signed-in token **and** the current PIN (`current_pin`), once the default PIN has been changed. This is the only route a default-PIN token can use. |
 
 The counter screens ask for the PIN when they need it. Cancelling a bill on Day End, and changing
 the target or adding or deleting an expense on the Dashboard, open a PIN prompt
-(`frontend/src/components/PinPrompt.jsx`). Once it is entered, the call is retried with the new
-token (`pinApi` / `requirePin` in `frontend/src/api.js`). The token is then kept for the session,
-like an Admin sign-in.
+(`frontend/src/components/PinPrompt.jsx`). **The PIN is asked for every time** (Abhinav's choice,
+2026-11-20): the prompt signs in with `once: true`, which returns a token valid for 2 minutes, and
+`pinApi` in `frontend/src/api.js` uses it for that one call and drops it. Nothing is saved on the
+tablet, and an Admin page session open on the same tablet is not reused. Before this, one PIN at the
+counter left the tablet signed in for 12 hours, so anyone who picked it up could cancel bills, edit
+expenses or open Admin.
 
 ## Controls
 
@@ -77,6 +80,11 @@ like an Admin sign-in.
 - **Tokens:** `<expiry>.<HMAC-SHA256(token_secret, expiry)>`, valid for `session_hours` (default
   12). They are checked with `hmac.compare_digest`. Tokens over 100 characters or with non-ASCII
   characters are refused up front, so bad input gives a 401, never a 500.
+- **Counter tokens** (`POST /api/admin/login` with `once: true`) last `ONCE_SECONDS` (120 s).
+- **Admin page idle sign-out:** the Admin page signs out after 15 minutes without a tap or key press.
+- **Changing the PIN needs the current PIN** (`current_pin`) once the default has been changed, so a
+  token left on a tablet can't be used to lock the owner out. A wrong `current_pin` counts as a
+  wrong PIN for the throttle below. The first change from `1234` needs no current PIN.
 - **Changing the PIN signs everyone out.** `set_pin` rotates `token_secret`, so every earlier token
   stops working. This is also the only way to revoke tokens (there is no per-token logout).
 - **Default PIN lockdown.** `1234` is the same on every install, so a token from the default PIN can
@@ -165,8 +173,9 @@ wrong PIN clears the remembered length, so a PIN changed on another tablet to a 
   header only from `WB_FORWARDED_ALLOW_IPS` (default `127.0.0.1`; compose sets `*` for `api`,
   safe because only `web` can reach it). So the PIN throttle counts per tablet, and a client can't
   dodge it by sending its own `X-Forwarded-For`.
-- `make dev` publishes the dev API on port 8000 and the Vite dev server on 5173 on all interfaces,
-  with its own `pos-dev-data` volume. Don't run it on the shop network with real data.
+- `make dev` publishes the dev API on port 8000 and the Vite dev server on 5173 on **this computer
+  only** (`127.0.0.1`), with its own `pos-dev-data` volume. The dev API trusts `X-Forwarded-For` from
+  anyone (for the Vite proxy), so on the Wi-Fi it would let a device dodge the per-tablet lockout.
 
 ## Google Sheet bridge
 
@@ -183,11 +192,13 @@ The sync sends data **out** to an Apps Script web app inside the owner's Google 
 - **Allow-listed tabs.** The script writes only `Orders`, `OrderItems`, `Expenses`, `Daily`, `Items`
   and `Monthly`, with at most 5,000 rows per tab per request, under a script lock. Other tabs are
   never touched.
-- **Formula escaping, twice.** Text that starts with `=`, `+`, `-` or `@` (and isn't a number) gets a
+- **Formula escaping, twice.** Text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return
+  (and isn't a number) gets a
   leading apostrophe, so a customer name like `=IMPORTDATA("https://...")` stays plain text. The POS
   does this before sending (`sheets._cell`), and the script does it again (`clean_`), so an old copy
   of either side is still safe.
-- **URL check.** The POS only posts to `https://script.google.com/macros/s/<id>/exec`.
+- **URL check.** The POS only posts to `https://script.google.com/macros/s/<id>/exec`, and the
+  Admin form refuses any other URL when it is saved (the same `WEB_APP_URL_RE`).
 - **Admin-only, one at a time.** `POST /api/sync` needs the PIN. If a sync is already running (the
   background loop or a second click), another one answers "A sync is already running", so rows aren't
   sent twice.
@@ -208,17 +219,25 @@ For the owner, in order of importance:
    includes customer phone numbers, the PIN hash and the token secret. Someone holding it can try PINs
    offline, or sign admin tokens directly. Store backups like cash. If one is lost, change the PIN at
    once: that also replaces the token secret.
-5. **Sign out on shared tablets.** Sign-in lasts 12 hours on that device (the token is forgotten
-   when the browser closes). Changing the PIN signs out every device.
-6. **Forgot the PIN?** On the shop PC, run `make pin-reset`. It stops `api` for a moment, deletes
+5. **Sign out on shared tablets.** An Admin page sign-in lasts until you press Sign out, close the
+   browser, or leave it for 15 minutes. Counter PIN prompts are never remembered. Changing the PIN
+   signs out every device.
+6. **Use a 6 to 8 digit PIN.** The lockout allows at most about 4,300 guesses a day from the whole
+   network. A 4-digit PIN could fall in a day or two to a patient device on the Wi-Fi; a 6-digit one
+   would take months.
+7. **Forgot the PIN?** On the shop PC, run `make pin-reset`. It stops `api` for a moment, deletes
    the `module:admin` row (so the PIN is `1234` again and every session is signed out), and starts
    it again. Then sign in and choose a new PIN. Only someone with access to the PC (or the Docker host) can do this, which is the point.
-7. **Open the POS by IP address or the PC's name.** If you give it a domain name, add it to
+8. **Open the POS by IP address or the PC's name.** If you give it a domain name, add it to
    `WB_ALLOWED_HOSTS`, or the Host check will refuse it.
 
 ## Review findings
 
-From the security review of 2026-11-18 (`/tmp/claude-0/security-review.md`, not in the repo).
+From the security reviews of 2026-11-18 (F1-F21) and 2026-11-20 (F22-F31). The second one probed
+every route on a local copy with no token, forged and expired tokens, the default PIN, SQL injection
+strings in every query and path parameter, stored XSS through every text field (checked in a
+browser), cross-site form posts, foreign `Host` names, NaN/Infinity/huge numbers, deep JSON and
+oversized bodies. `pip-audit` and `npm audit` found no known vulnerabilities.
 
 | ID | Severity | Finding | Status |
 | --- | --- | --- | --- |
@@ -243,3 +262,13 @@ From the security review of 2026-11-18 (`/tmp/claude-0/security-review.md`, not 
 | F19 | Low | An oversized chunked body got 400 instead of 413 | **Fixed:** `BodyLimit` reads the body up to the limit first and answers 413. |
 | F20 | Low | Protocol-relative image URLs (`//host/x.png`) passed as same-server paths | **Fixed:** a leading `//` is refused. |
 | F21 | Info | Errors from `HostCheck`/`BodyLimit` went out without the security headers | **Fixed:** `SecurityHeaders` is now the outermost middleware. |
+| F22 | High | One PIN typed at the counter (cancel, expense, target) kept the tablet signed in for 12 hours: anyone could then cancel bills, edit expenses and targets, or open Admin | **Fixed:** counter prompts get a 2-minute token used for one call and never stored (`once: true`); Admin page signs out after 15 idle minutes. |
+| F23 | High | Changing the PIN needed only a token, so a token left on a tablet could set a new PIN and lock the owner out | **Fixed:** `current_pin` is required once the default is changed; wrong ones count towards the lockout. |
+| F24 | Medium | With an IP address that changes, PIN guessing is limited only by the global 30 per 10 minutes (about 4,300 a day): a 4-digit PIN falls in about a day | **Open, advice:** use 6 to 8 digits (the owner's PIN is already 6). Raising the minimum would change the PIN rules, so it was not done. |
+| F25 | Medium | Billing is open to every device on the Wi-Fi: anyone on it can create bills and read every bill, including customer phone numbers | **Accepted by design** (the counter works without a PIN). Keep customers on a guest Wi-Fi; fake bills can only be removed with the PIN. |
+| F26 | Low | The global PIN lockout lets any device on the Wi-Fi keep everyone out of Admin by sending 30 wrong PINs every 10 minutes | **Accepted:** the trade-off for F24; a restart of `api` clears it. |
+| F27 | Low | `make dev` published the dev API (which trusts `X-Forwarded-For` from anyone) and the Vite server on all interfaces | **Fixed:** both bound to `127.0.0.1`. |
+| F28 | Low | Image paths accepted `..`, `//` and `/api/...` (e.g. `/../../etc/passwd`, `/api/backup`) | **Fixed:** refused. Harmless in practice (same-origin GETs without a token) but now tidy. |
+| F29 | Low | Some settings had no upper limit: default target `1e300`, 100,000-character delivery buildings or expense categories, `min_order` `1e308` | **Fixed:** target ≤ ₹10 crore, `min_order` ≤ ₹1 crore, categories ≤ 30 and buildings ≤ 60 characters each. |
+| F30 | Low | The Sheet web app URL was checked only by prefix when saved (e.g. `.../macros/s/x@evil.com/exec` was accepted; sync refused it later) | **Fixed:** the form uses the same strict pattern as the sync. |
+| F31 | Info | Formula escaping ignored a leading tab or carriage return | **Fixed** in both `sheets._cell` and the Apps Script `clean_` (paste the new script to pick it up). |
