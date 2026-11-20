@@ -73,7 +73,8 @@ def module_view(db: DB, module: Module) -> ModuleView:
 
 @router.get("/config", summary="POS configuration for the screens")
 def public_config(db: DB) -> dict[str, Any]:
-    """Every module's on/off state and its non-secret settings. The POS screens load this at start-up."""
+    """Every module's on/off state and its non-secret settings. The POS screens load this at start-up.
+    `pin_length` is how many digits the admin PIN has (0 if not known yet), for the sign-in pad."""
     return {
         "version": __version__,
         "modules": {
@@ -85,6 +86,7 @@ def public_config(db: DB) -> dict[str, Any]:
             if m.key != "admin"
         },
         "default_pin": auth.uses_default_pin(db),
+        "pin_length": auth.pin_length(db),
     }
 
 
@@ -104,6 +106,7 @@ def login(body: LoginIn, db: DB, request: Request) -> LoginOut:
         throttle.failed(client)
         raise bad_request("Wrong PIN", 401)
     throttle.succeeded(client)
+    auth.remember_pin_length(db, body.pin)
     token, expires = auth.issue_token(db)
     return LoginOut(token=token, expires_at=expires, must_change_pin=auth.uses_default_pin(db))
 

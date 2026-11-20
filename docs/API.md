@@ -20,7 +20,7 @@ change things need an admin token in `$T`: see [Admin & config](#admin--config).
 - [Conventions](#conventions)
 - [Menu](#menu): `GET /api/menu`, `POST /api/categories`, `PUT /api/categories/{id}`, `DELETE /api/categories/{id}`, `POST /api/categories/reorder`, `POST /api/items`, `PUT /api/items/{id}`, `DELETE /api/items/{id}`, `POST /api/items/reorder`
 - [Orders](#orders): `POST /api/orders`, `GET /api/orders`, `GET /api/orders/{id}`, `POST /api/orders/{id}/cancel`
-- [Dashboard](#dashboard): `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/day-end`
+- [Dashboard](#dashboard): `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/calendar`, `GET /api/day-end`
 - [Finance](#finance): `PUT /api/targets/{month}`, `GET /api/expenses`, `POST /api/expenses`, `DELETE /api/expenses/{id}`
 - [Admin & config](#admin--config): `GET /api/config`, `POST /api/admin/login`, `POST /api/admin/pin`, `GET /api/admin/modules`, `PUT /api/admin/modules/{key}`, `GET /api/admin/google-sheet/script`
 - [System](#system): `GET /api/health`, `POST /api/sync`, `GET /api/backup`, `POST /api/integrations/whatsapp`
@@ -356,14 +356,19 @@ category revenue is line value (`price x qty`), before bill discounts and GST; o
 
 `period` (`today`, `week`, `month`, `30d`, `all`; default `month`) only affects the `items` part.
 
+`now` is the shop-local time the numbers were worked out for. The screens use it for the clock in
+the top bar, today's date and the "now" marker on the hourly chart, so they match the server even
+if a tablet's own clock or time zone is wrong.
+
 ```bash
 curl http://localhost:4000/api/dashboard
 ```
 
 ```json
 {
+  "now":      "2026-11-18T15:30:00",
   "target":   { ... },
-  "charts":   { "hourly": [...], "daily": [...], "weekly": [...], "monthly": [...],
+  "charts":   { "hourly": [...], "hourlyDays": 17, "daily": [...], "weekly": [...], "monthly": [...],
                 "categorySplit": [...], "paymentSplit": [...], "weekday": [...] },
   "insights": [ ... ],
   "items":    { ... same as GET /api/items/stats?period=month ... }
@@ -450,13 +455,14 @@ Worked check with the numbers above: `revenueBeforeToday` = 77,471 - 447 = 77,02
 
 | Key | Rows | Row fields |
 | --- | --- | --- |
-| `hourly` | One per hour from opening hour to closing hour (widened if a sale fell outside) | `hour` (0-23), `label` (`"8pm"`), `today` (₹ this hour today), `todayOrders`, `average` (₹ in this hour over the previous 28 days / number of days that had sales), `avgOrders` (same, for bill count) |
+| `hourly` | One per hour from opening hour to closing hour (widened if a sale fell outside). A bill counts in the hour it was made: 18:49 is in `18` (`"6pm"`, 6-7pm). | `hour` (0-23), `label` (`"8pm"`), `today` (₹ this hour today), `todayOrders`, `average` (₹ in this hour over the previous 28 days / number of days that had sales), `avgOrders` (same, for bill count) |
+| `hourlyDays` | A number | How many days with sales the hourly `average` is based on (0: no history yet, so `average` is 0) |
 | `daily` | Every day of this month | `day` (1-31), `date`, `revenue`, `orders`, `cumulative` (running total), all `null` for future days; `pace` (even-pace cumulative target: `target / daysInMonth x day`), `dailyTarget` (`target / daysInMonth`) |
-| `weekly` | Last 12 weeks, Monday to Sunday, oldest first | `week` (`"31 Aug"`), `start` (Monday's date), `revenue`, `orders` |
-| `monthly` | Last 12 months, oldest first | `month` (`"Nov 26"`), `key` (`"2026-11"`), `revenue`, `orders`, `target`, `expenses` (that month's total) |
+| `weekly` | Up to the last 12 weeks, Monday to Sunday, oldest first, starting no earlier than the week of the first paid bill (just this week before any sale) | `week` (`"31 Aug"`), `start` (Monday's date), `revenue`, `orders` |
+| `monthly` | Up to the last 12 months, oldest first, starting no earlier than the month of the first paid bill (just this month before any sale) | `month` (`"Nov 26"`), `key` (`"2026-11"`), `revenue`, `orders`, `target`, `expenses` (that month's total) |
 | `categorySplit` | Categories sold this month, biggest first | `name`, `value` (₹ line value), `qty` |
 | `paymentSplit` | Payment methods this month, biggest first | `name` (`upi`/`cash`/`card`), `value` (₹ bill totals), `orders` |
-| `weekday` | Mon..Sun | `day` (`"Mon"`), `average` (₹ per trading day of that weekday over the last 8 weeks, before today; 0 if none) |
+| `weekday` | Mon..Sun | `day` (`"Mon"`), `average` (₹ per trading day of that weekday over the last 8 weeks, before today; 0 if none), `days` (how many such days) |
 
 ```json
 {
@@ -466,11 +472,11 @@ Worked check with the numbers above: `revenueBeforeToday` = 77,471 - 447 = 77,02
     ...,
     {"day": 30, "date": "2026-11-30", "revenue": null, "orders": null, "cumulative": null, "pace": 100000.0, "dailyTarget": 3333.33}
   ],
-  "weekly": [{"week": "31 Aug", "start": "2026-08-31", "revenue": 0.0, "orders": 0}, ...],
-  "monthly": [{"month": "Dec 25", "key": "2025-12", "revenue": 0.0, "orders": 0, "target": 100000.0, "expenses": 0.0}, ...],
+  "weekly": [{"week": "28 Sep", "start": "2026-09-28", "revenue": 9876.0, "orders": 38}, ...],
+  "monthly": [{"month": "Oct 26", "key": "2026-10", "revenue": 68112.0, "orders": 309, "target": 100000.0, "expenses": 91813.0}, ...],
   "categorySplit": [{"name": "Waffle", "value": 46909.0, "qty": 261}, {"name": "Combo", "value": 18564.0, "qty": 56}, ...],
   "paymentSplit": [{"name": "upi", "value": 51831.0, "orders": 133}, {"name": "cash", "value": 20545.0, "orders": 61}, ...],
-  "weekday": [{"day": "Mon", "average": 2316.14}, {"day": "Tue", "average": 2832.0}, ...]
+  "weekday": [{"day": "Mon", "average": 2316.14, "days": 7}, {"day": "Tue", "average": 2832.0, "days": 7}, ...]
 }
 ```
 
@@ -539,6 +545,39 @@ curl 'http://localhost:4000/api/items/stats?period=month'
   "topByRevenue": [...],
   "topByQty": [...],
   "slowMovers": [...]
+}
+```
+
+### `GET /api/calendar?month=YYYY-MM`: a month of daily sales
+
+Open (no token). Every day of one month (default: this month) with its paid sales, for the
+calendar on the Dashboard. Pick a day there to see its summary from `GET /api/day-end`. A month
+that is not `YYYY-MM` gives 400 `Enter a valid month (YYYY-MM)`.
+
+| Key | Meaning |
+| --- | --- |
+| `month`, `today` | The month asked for, and today's shop-local date |
+| `target`, `dailyTarget` | The month's target and `target / days in month` (the even-pace daily goal) |
+| `revenue`, `orders` | Paid bills in the month: sum of `total`, count |
+| `tradingDays`, `avgDaily` | Days with at least one paid bill, and `revenue / tradingDays` (0 if none) |
+| `bestDay` | Date with the most revenue, or `null` |
+| `firstSale` | Date of the shop's first paid bill ever, or `null` |
+| `days` | One per day: `date`, `day`, `weekday` (0 = Monday), `revenue`, `orders`, `cancelled` (bills cancelled that day), `future` (after today: the three figures are `null`), `today` |
+
+```bash
+curl 'http://localhost:4000/api/calendar?month=2026-11'
+```
+
+```json
+{
+  "month": "2026-11", "today": "2026-11-18", "target": 100000.0, "dailyTarget": 3333.33,
+  "revenue": 77471.0, "orders": 296, "tradingDays": 18, "avgDaily": 4303.94,
+  "bestDay": "2026-11-14", "firstSale": "2026-10-01",
+  "days": [
+    {"date": "2026-11-01", "day": 1, "weekday": 6, "revenue": 7492.0, "orders": 18, "cancelled": 0, "future": false, "today": false},
+    ...,
+    {"date": "2026-11-30", "day": 30, "weekday": 0, "revenue": null, "orders": null, "cancelled": null, "future": true, "today": false}
+  ]
 }
 ```
 
@@ -721,7 +760,9 @@ T=$(curl -s -X POST http://localhost:4000/api/admin/login -H 'Content-Type: appl
 
 Open (no token). Every module except `admin`, with its on/off state and its settings minus secret
 ones. The screens load this at start-up for the shop name, theme colours, payment methods, order
-types, the GST line, the discount cap and the bill footer.
+types, the GST line, the discount cap and the bill footer. `pin_length` is how many digits the
+admin PIN has, so the sign-in pad shows that many dots and signs in on the last digit; it is 0
+for a PIN set before the length was recorded, until the next successful sign-in.
 
 ```bash
 curl http://localhost:4000/api/config
@@ -760,7 +801,8 @@ curl http://localhost:4000/api/config
     "google_sheets": {"enabled": false, "settings": {"web_app_url": "", "interval_minutes": 5, "last_sync": ""}},
     "whatsapp": {"enabled": false, "settings": {"business_number": "", "delivery_buildings": [], "min_order": 0}}
   },
-  "default_pin": true
+  "default_pin": true,
+  "pin_length": 4
 }
 ```
 

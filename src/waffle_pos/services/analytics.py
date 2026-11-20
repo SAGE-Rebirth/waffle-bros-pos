@@ -44,6 +44,12 @@ def _revenue_between(session: Session, start: date, end: date) -> tuple[float, i
     return float(row[0]), int(row[1])
 
 
+def first_sale_day(session: Session) -> date | None:
+    """The shop-local day of the first paid bill, or None before the first sale."""
+    first = session.scalar(select(func.min(Order.created_at)).where(Order.status == "paid"))
+    return first.date() if first is not None else None
+
+
 def _day_of(col: Any) -> ColumnElement[str]:
     return func.strftime("%Y-%m-%d", col)
 
@@ -182,8 +188,9 @@ def _by_day(session: Session, start: date, end: date) -> dict[str, tuple[float, 
     return {str(d): (float(rev), int(n)) for d, rev, n in rows}
 
 
-def _hourly(session: Session, today: date) -> list[dict[str, Any]]:
-    """Today, hour by hour, against the average of the previous 28 days."""
+def _hourly(session: Session, today: date) -> tuple[list[dict[str, Any]], int]:
+    """Today, hour by hour, against the average trading day (a day with at least one paid bill)
+    of the previous 28 days. Also returns how many trading days that average is based on."""
     tomorrow = today + timedelta(days=1)
     hist_from = today - timedelta(days=28)
     today_hours = _by_hour(session, today, tomorrow)
@@ -214,7 +221,7 @@ def _hourly(session: Session, today: date) -> list[dict[str, Any]]:
                 "avgOrders": money(a_n / hist_days) if hist_days else 0,
             }
         )
-    return out
+    return out, int(hist_days)
 
 
 def _daily(session: Session, today: date, target: float) -> list[dict[str, Any]]:
@@ -245,21 +252,32 @@ def _daily(session: Session, today: date, target: float) -> list[dict[str, Any]]
     return out
 
 
-def _weekly(session: Session, today: date) -> list[dict[str, Any]]:
-    """The last 12 weeks, Monday to Sunday."""
+def _weekly(session: Session, today: date, first: date | None) -> list[dict[str, Any]]:
+    """Up to the last 12 weeks, Monday to Sunday, starting no earlier than the week of the first
+    sale (so a new shop does not see weeks from before it opened)."""
     this_week = clock.start_of_week(today)
+    weeks = 12
+    if first is not None and first <= today:
+        weeks = min(weeks, (this_week - clock.start_of_week(first)).days // 7 + 1)
+    elif first is None:
+        weeks = 1
     out: list[dict[str, Any]] = []
-    for i in range(11, -1, -1):
+    for i in range(weeks - 1, -1, -1):
         ws = this_week - timedelta(days=7 * i)
         rev, n = _revenue_between(session, ws, ws + timedelta(days=7))
         out.append({"week": f"{ws.day} {ws:%b}", "start": ws.isoformat(), "revenue": money(rev), "orders": n})
     return out
 
 
-def monthly_summary(session: Session, today: date) -> list[dict[str, Any]]:
-    """The last 12 months with their targets and expenses."""
+def monthly_summary(session: Session, today: date, since: date | None = None) -> list[dict[str, Any]]:
+    """The last 12 months with their targets and expenses. With ``since``, months before the one
+    holding that day are left out (the charts pass the first sale, so no empty months before the
+    shop opened); the current month is always included."""
+    months = 12
+    if since is not None and since <= today:
+        months = min(months, (today.year - since.year) * 12 + today.month - since.month + 1)
     out: list[dict[str, Any]] = []
-    for i in range(11, -1, -1):
+    for i in range(months - 1, -1, -1):
         idx = today.year * 12 + today.month - 1 - i
         ms = date(idx // 12, idx % 12 + 1, 1)
         key = clock.month_key(ms)
@@ -301,7 +319,8 @@ def _splits(session: Session, today: date) -> tuple[list[dict[str, Any]], list[d
 
 
 def _weekday(session: Session, today: date) -> list[dict[str, Any]]:
-    """Average revenue per weekday over the last 8 weeks (days with sales only), Monday first."""
+    """Average revenue per weekday over the last 8 weeks (days with sales only), Monday first.
+    `days` is how many such days each average is based on."""
     rows = _by_day(session, today - timedelta(days=56), today)
     totals = [0.0] * 7
     days = [0] * 7
@@ -310,7 +329,7 @@ def _weekday(session: Session, today: date) -> list[dict[str, Any]]:
         totals[wd] += rev
         days[wd] += 1
     return [
-        {"day": name, "average": money(totals[i] / days[i]) if days[i] else 0}
+        {"day": name, "average": money(totals[i] / days[i]) if days[i] else 0, "days": days[i]}
         for i, name in enumerate(_WEEKDAYS)
     ]
 
@@ -319,14 +338,72 @@ def charts(session: Session, now: datetime) -> dict[str, Any]:
     today = now.date()
     target = get_target(session, clock.month_key(today))
     category_split, payment_split = _splits(session, today)
+    first = first_sale_day(session)
+    hourly, hourly_days = _hourly(session, today)
     return {
-        "hourly": _hourly(session, today),
+        "hourly": hourly,
+        "hourlyDays": hourly_days,
         "daily": _daily(session, today, target),
-        "weekly": _weekly(session, today),
-        "monthly": monthly_summary(session, today),
+        "weekly": _weekly(session, today, first),
+        "monthly": monthly_summary(session, today, since=first or today),
         "categorySplit": category_split,
         "paymentSplit": payment_split,
         "weekday": _weekday(session, today),
+    }
+
+
+# ---------- Calendar ----------
+def calendar(session: Session, month: str, today: date) -> dict[str, Any]:
+    """One month as a calendar: every day's paid sales and bill count, against the month's even
+    daily target. Days after ``today`` are marked ``future`` and have no figures."""
+    start = clock.parse_month(month)
+    end = clock.next_month_start(start)
+    dim = (end - start).days
+    target = get_target(session, month)
+    rows = _by_day(session, start, end)
+    cancelled: dict[str, int] = {
+        str(d): int(n)
+        for d, n in session.execute(
+            select(_day_of(Order.created_at), func.count(Order.id))
+            .where(Order.status == "cancelled", Order.created_at >= _at(start), Order.created_at < _at(end))
+            .group_by(_day_of(Order.created_at))
+        ).all()
+    }
+    days: list[dict[str, Any]] = []
+    for d in range(1, dim + 1):
+        day = start.replace(day=d)
+        key = day.isoformat()
+        rev, n = rows.get(key, (0.0, 0))
+        future = day > today
+        days.append(
+            {
+                "date": key,
+                "day": d,
+                "weekday": day.weekday(),  # 0 = Monday
+                "revenue": None if future else money(rev),
+                "orders": None if future else n,
+                "cancelled": None if future else cancelled.get(key, 0),
+                "future": future,
+                "today": day == today,
+            }
+        )
+    revenue = sum(float(r[0]) for r in rows.values())
+    orders = sum(r[1] for r in rows.values())
+    trading = [d for d in days if d["orders"]]
+    best = max(trading, key=lambda d: d["revenue"], default=None)
+    first = first_sale_day(session)
+    return {
+        "month": month,
+        "today": today.isoformat(),
+        "target": target,
+        "dailyTarget": money(target / dim),
+        "revenue": money(revenue),
+        "orders": orders,
+        "tradingDays": len(trading),
+        "avgDaily": money(revenue / len(trading)) if trading else 0,
+        "bestDay": best["date"] if best else None,
+        "firstSale": first.isoformat() if first else None,
+        "days": days,
     }
 
 

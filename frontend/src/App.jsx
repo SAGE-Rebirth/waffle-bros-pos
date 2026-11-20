@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, inr } from './api.js';
+import { api, inr, shopNow, syncShopClock } from './api.js';
 import Billing from './pages/Billing.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import DayEnd from './pages/DayEnd.jsx';
@@ -25,8 +25,10 @@ const PAGES = [
 
 // Old links (#settings) land on the admin dashboard.
 const ALIASES = { settings: 'admin' };
+// The hash is the page, optionally with a query: #dayend?date=2026-11-19.
+const hashPage = () => location.hash.slice(1).split('?')[0];
 const pageFromHash = () => {
-  const h = location.hash.slice(1);
+  const h = hashPage();
   const p = ALIASES[h] || h;
   return PAGES.some(([k]) => k === p) ? p : 'billing';
 };
@@ -37,14 +39,18 @@ export default function App() {
   const shop = settings('shop');
   const [summary, setSummary] = useState(null);
   const [toast, setToast] = useState('');
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState(shopNow);
 
-  const refresh = useCallback(() => api.get('/api/dashboard').then((d) => setSummary(d.target)).catch(() => {}), []);
+  const refresh = useCallback(() => api.get('/api/dashboard').then((d) => {
+    syncShopClock(d.now);
+    setNow(shopNow());
+    setSummary(d.target);
+  }).catch(() => {}), []);
   useEffect(() => { refresh(); const t = setInterval(refresh, 60_000); return () => clearInterval(t); }, [refresh]);
-  useEffect(() => { const t = setInterval(() => setNow(new Date()), 30_000); return () => clearInterval(t); }, []);
-  useEffect(() => { if (location.hash.slice(1) !== page) location.hash = page; }, [page]);
+  useEffect(() => { const t = setInterval(() => setNow(shopNow()), 15_000); return () => clearInterval(t); }, []);
+  useEffect(() => { if (hashPage() !== page) location.hash = page; }, [page]);
   useEffect(() => {
-    const h = () => { const p = pageFromHash(); setPage(p); if (location.hash.slice(1) !== p) location.replace(`#${p}`); };
+    const h = () => { const p = pageFromHash(); setPage(p); if (hashPage() !== p) location.replace(`#${p}`); };
     window.addEventListener('hashchange', h);
     return () => window.removeEventListener('hashchange', h);
   }, []);
@@ -69,7 +75,7 @@ export default function App() {
             <div className="bar"><div style={{ width: `${pct}%` }} /></div>
           </div>
         )}
-        <div className="clock">{now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} · {now.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</div>
+        <div className="clock num" title="Shop time">{now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} · {now.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</div>
       </header>
       <main>
         {page === 'billing' && <Billing onOrder={refresh} notify={notify} goAdmin={() => setPage('admin')} />}

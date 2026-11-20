@@ -633,7 +633,7 @@ def test_trading_day(client: TestClient) -> None:
 
     # --- Dashboard: target progress (fresh shop: nothing before today) ---
     dash = ok(client.get("/api/dashboard"))
-    assert set(dash) == {"target", "charts", "insights", "items"}
+    assert set(dash) == {"now", "target", "charts", "insights", "items"}
     t = dash["target"]
     today = clock.today()
     dim = clock.days_in_month(today)
@@ -677,7 +677,16 @@ def test_trading_day(client: TestClient) -> None:
 
     # --- Charts ---
     charts = dash["charts"]
-    assert set(charts) == {"hourly", "daily", "weekly", "monthly", "categorySplit", "paymentSplit", "weekday"}
+    assert set(charts) == {
+        "hourly",
+        "hourlyDays",
+        "daily",
+        "weekly",
+        "monthly",
+        "categorySplit",
+        "paymentSplit",
+        "weekday",
+    }
     assert sum(r["today"] for r in charts["hourly"]) == pytest.approx(revenue)
     assert sum(r["todayOrders"] for r in charts["hourly"]) == 5
     assert [r["hour"] for r in charts["hourly"]] == list(
@@ -689,10 +698,10 @@ def test_trading_day(client: TestClient) -> None:
     assert today_row["revenue"] == today_row["cumulative"] == pytest.approx(revenue)
     assert charts["daily"][-1]["pace"] == pytest.approx(target)
     assert all(r["revenue"] is None for r in charts["daily"][today.day :])
-    assert len(charts["weekly"]) == 12
+    assert len(charts["weekly"]) == 1  # a fresh shop: only the week of its first sale
     assert charts["weekly"][-1]["start"] == f"{clock.start_of_week(today)}"
     assert (charts["weekly"][-1]["revenue"], charts["weekly"][-1]["orders"]) == (pytest.approx(revenue), 5)
-    assert len(charts["monthly"]) == 12
+    assert len(charts["monthly"]) == 1
     this_month = charts["monthly"][-1]
     assert this_month["key"] == clock.month_key(today)
     assert (this_month["revenue"], this_month["orders"]) == (pytest.approx(revenue), 5)

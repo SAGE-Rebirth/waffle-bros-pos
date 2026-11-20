@@ -87,6 +87,17 @@ def test_pin_flow(db_session: Session) -> None:
     assert not auth.verify_token(db_session, token), "changing the PIN signs everyone out"
 
 
+def test_pin_length_is_recorded(db_session: Session) -> None:
+    assert auth.pin_length(db_session) == 4  # the default 1234
+    auth.set_pin(db_session, "246810")
+    assert auth.pin_length(db_session) == 6
+    # A PIN set before the length was stored: learnt on the next successful sign-in.
+    registry.store_internal(db_session, "admin", {"pin_length": 0})
+    assert auth.pin_length(db_session) == 0
+    auth.remember_pin_length(db_session, "246810")
+    assert auth.pin_length(db_session) == 6
+
+
 def test_tokens_expire_and_reject_tampering(db_session: Session) -> None:
     token, expires = auth.issue_token(db_session, now=1_000_000)
     assert auth.verify_token(db_session, token, now=1_000_100)
@@ -161,7 +172,19 @@ def test_change_pin_via_api(mod_client: TestClient) -> None:
     assert mod_client.get("/api/admin/modules", headers=h).status_code == 401
     assert mod_client.get("/api/admin/modules", headers=new_h).status_code == 200
     assert mod_client.post("/api/admin/login", json={"pin": "1234"}).status_code == 401
-    assert mod_client.get("/api/config").json()["default_pin"] is False
+    cfg = mod_client.get("/api/config").json()
+    assert cfg["default_pin"] is False
+    assert cfg["pin_length"] == 4
+
+
+def test_config_pin_length_after_login(mod_client: TestClient) -> None:
+    h = _login(mod_client)
+    assert mod_client.get("/api/config").json()["pin_length"] == 4
+    r = mod_client.post("/api/admin/pin", headers=h, json={"new_pin": "13579135"})
+    assert r.status_code == 200
+    assert mod_client.get("/api/config").json()["pin_length"] == 8
+    assert mod_client.post("/api/admin/login", json={"pin": "1357"}).status_code == 401
+    assert mod_client.get("/api/config").json()["pin_length"] == 8  # a wrong PIN changes nothing
 
 
 def test_category_management(mod_client: TestClient) -> None:

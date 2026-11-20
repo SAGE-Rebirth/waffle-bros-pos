@@ -44,6 +44,10 @@ function toImage(file, max = 256) {
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
 
 function PinScreen({ onSignedIn }) {
+  // The server tells us how many digits the PIN has (0 if it doesn't know yet, e.g. a PIN set
+  // before this was recorded); then the pad shows that many dots and signs in on the last digit.
+  const { pin_length: pinLength, reload } = useConfig();
+  const maxLen = pinLength || 8;
   const [pin, setPin] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -54,20 +58,26 @@ function PinScreen({ onSignedIn }) {
     setBusy(true); setErr('');
     try {
       const r = await api.post('/api/admin/login', { pin: p });
+      if (!pinLength) reload(); // the server has now recorded the PIN length
       onSignedIn(r);
     } catch (e) {
       setErr(e.status === 401 ? 'Wrong PIN. Try again.' : e.message);
       setPin(''); setShake(true); setTimeout(() => setShake(false), 400);
     }
     setBusy(false);
-  }, [busy, onSignedIn]);
+  }, [busy, onSignedIn, pinLength, reload]);
 
   const press = useCallback((k) => {
     setErr('');
     if (k === 'back') setPin((p) => p.slice(0, -1));
     else if (k === 'clear') setPin('');
-    else setPin((p) => (p.length < 8 ? p + k : p));
-  }, []);
+    else setPin((p) => (p.length < maxLen ? p + k : p));
+  }, [maxLen]);
+
+  // With a known length, sign in as soon as the last digit is entered.
+  useEffect(() => {
+    if (pinLength && pin.length === pinLength) submit(pin);
+  }, [pin, pinLength]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const h = (e) => {
@@ -83,14 +93,15 @@ function PinScreen({ onSignedIn }) {
     return () => window.removeEventListener('keydown', h);
   }, [press, submit, pin]);
 
+  const slots = pinLength || Math.max(4, pin.length);
   return (
     <div className="page pin-page">
       <div className={`card pin-card${shake ? ' shake' : ''}`}>
         <div className="pin-lock" aria-hidden="true">🔐</div>
         <h1>Admin sign-in</h1>
         <p className="small muted">Enter the admin PIN to change the menu, modules and settings.</p>
-        <div className="pin-dots" aria-label={`${pin.length} digits entered`}>
-          {Array.from({ length: Math.max(4, pin.length) }, (_, i) => <span key={i} className={i < pin.length ? 'on' : ''} />)}
+        <div className="pin-dots" aria-label={`${pin.length} of ${pinLength || 'up to 8'} digits entered`}>
+          {Array.from({ length: slots }, (_, i) => <span key={i} className={i < pin.length ? 'on' : ''} />)}
         </div>
         <div className="err pin-err" role="alert">{err || ' '}</div>
         <div className="keypad">
@@ -104,7 +115,9 @@ function PinScreen({ onSignedIn }) {
         <button className="btn primary pin-go" disabled={pin.length < 4 || busy} onClick={() => submit(pin)}>
           {busy ? 'Checking…' : 'Sign in'}
         </button>
-        <p className="small muted" style={{ marginBottom: 0 }}>You can also type the PIN and press Enter.</p>
+        <p className="small muted" style={{ marginBottom: 0 }}>
+          {pinLength ? `${pinLength}-digit PIN. You can also type it on the keyboard.` : 'You can also type the PIN and press Enter.'}
+        </p>
       </div>
     </div>
   );
@@ -542,10 +555,12 @@ function SchemaField({ name, spec, root, value, onChange, readOnly, error }) {
       );
   }
   const inline = kind === 'bool';
+  // Long text (URLs, addresses, footers) gets the full card width so it never squeezes its neighbour.
+  const wide = kind === 'text' && (s.maxLength ?? 0) >= 120;
   return (
-    <div className={`sfield sf-${kind}${inline ? ' inline' : ''}${error ? ' has-err' : ''}${readOnly ? ' ro' : ''}`}>
+    <div className={`sfield sf-${kind}${inline ? ' inline' : ''}${wide ? ' wide' : ''}${error ? ' has-err' : ''}${readOnly ? ' ro' : ''}`}>
       <label htmlFor={kind === 'bool' || kind === 'multi' ? undefined : idRef} className="sf-label">
-        {label}{readOnly && <span className="pill" style={{ marginLeft: 6 }}>read-only</span>}
+        {label}{readOnly && <span className="pill">read-only</span>}
       </label>
       {control}
       {s.description && <div className="sf-help">{s.description}</div>}
@@ -664,15 +679,18 @@ function ModuleCard({ mod, onSaved, notify }) {
               <>
                 <button className="btn ghost" disabled={busy} onClick={newSecret} title="Fill in a new random secret">New secret</button>
                 <button className="btn ghost" onClick={showScript}>Setup script</button>
-                <span className="grow" />
-                <span className="small muted">{mod.values?.last_sync ? `Last synced ${mod.values.last_sync}` : 'Not synced yet'}</span>
-                <button className="btn" disabled={syncing || busy || !mod.enabled} onClick={sync}
-                  title={mod.enabled ? 'Push new bills and expenses now' : 'Switch the module on first'}>
-                  {syncing ? 'Syncing…' : 'Sync now'}
-                </button>
               </>
             )}
           </div>
+          {mod.key === 'google_sheets' && (
+            <div className="module-status">
+              <span className="small muted">{mod.values?.last_sync ? `Last synced ${mod.values.last_sync}` : 'Not synced yet'}</span>
+              <button className="btn sm" disabled={syncing || busy || !mod.enabled} onClick={sync}
+                title={mod.enabled ? 'Push new bills and expenses now' : 'Switch the module on first'}>
+                {syncing ? 'Syncing…' : 'Sync now'}
+              </button>
+            </div>
+          )}
           {mod.key === 'google_sheets' && script && (
             <div className="script-box">
               <p className="small">

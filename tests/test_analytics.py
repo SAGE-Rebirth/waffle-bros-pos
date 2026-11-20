@@ -10,11 +10,13 @@ from waffle_pos.db.models import Expense, Item, Target
 from waffle_pos.modules.registry import save_settings
 from waffle_pos.schemas import OrderCreate, OrderLineIn, PaymentMethod
 from waffle_pos.services.analytics import (
+    calendar,
     charts,
     day_end,
     get_target,
     item_stats,
     month_expenses,
+    monthly_summary,
     target_summary,
 )
 from waffle_pos.services.insights import insights
@@ -209,7 +211,17 @@ def test_inactive_items_are_not_slow_movers(shop: Session) -> None:
 # ---------- charts ----------
 def test_charts(shop: Session) -> None:
     c = charts(shop, NOW)
-    assert set(c) == {"hourly", "daily", "weekly", "monthly", "categorySplit", "paymentSplit", "weekday"}
+    assert set(c) == {
+        "hourly",
+        "hourlyDays",
+        "daily",
+        "weekly",
+        "monthly",
+        "categorySplit",
+        "paymentSplit",
+        "weekday",
+    }
+    assert c["hourlyDays"] == 2
 
     hourly = {h["hour"]: h for h in c["hourly"]}
     assert min(hourly) == 10
@@ -246,14 +258,13 @@ def test_charts(shop: Session) -> None:
     assert daily[29]["pace"] == 50_000
 
     weekly = c["weekly"]
-    assert len(weekly) == 12
+    assert len(weekly) == 5  # from the week of the first sale (Mon 19 Oct), not 12 empty weeks
     assert weekly[-1] == {"week": "16 Nov", "start": "2026-11-16", "revenue": 229 + 129, "orders": 2}
     assert weekly[-2] == {"week": "9 Nov", "start": "2026-11-09", "revenue": 258 + 189, "orders": 2}
-    assert weekly[0]["start"] == "2026-08-31"
+    assert weekly[0] == {"week": "19 Oct", "start": "2026-10-19", "revenue": 159, "orders": 1}
 
     monthly = c["monthly"]
-    assert len(monthly) == 12
-    assert monthly[0]["key"] == "2025-12"
+    assert [m["key"] for m in monthly] == ["2026-10", "2026-11"]  # from the month of the first sale
     assert monthly[-1] == {
         "month": "Nov 26",
         "key": "2026-11",
@@ -277,7 +288,69 @@ def test_charts(shop: Session) -> None:
     assert [w["day"] for w in c["weekday"]] == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     weekday = {w["day"]: w["average"] for w in c["weekday"]}
     assert weekday["Tue"] == round((447 + 229 + 159) / 3, 2)
+    assert next(w for w in c["weekday"] if w["day"] == "Tue")["days"] == 3
     assert weekday["Wed"] == 0  # today is not part of the history
+
+
+def test_charts_before_the_first_sale(db_session: Session) -> None:
+    c = charts(db_session, NOW)
+    assert [w["start"] for w in c["weekly"]] == ["2026-11-16"]
+    assert [m["key"] for m in c["monthly"]] == ["2026-11"]
+    assert c["hourlyDays"] == 0
+    assert all(h["average"] == 0 and h["today"] == 0 for h in c["hourly"])
+
+
+def test_monthly_summary_keeps_12_months_without_since(shop: Session) -> None:
+    months = monthly_summary(shop, NOW.date())
+    assert len(months) == 12
+    assert months[0]["key"] == "2025-12"
+
+
+def test_calendar(shop: Session) -> None:
+    cal = calendar(shop, "2026-11", NOW.date())
+    assert cal["month"] == "2026-11"
+    assert cal["today"] == "2026-11-18"
+    assert (cal["target"], cal["dailyTarget"]) == (50_000, 1666.67)
+    assert (cal["revenue"], cal["orders"], cal["tradingDays"]) == (805, 4, 3)
+    assert cal["avgDaily"] == round(805 / 3, 2)
+    assert cal["bestDay"] == "2026-11-10"
+    assert cal["firstSale"] == "2026-10-20"
+    days = cal["days"]
+    assert len(days) == 30
+    assert days[0] == {
+        "date": "2026-11-01",
+        "day": 1,
+        "weekday": 6,
+        "revenue": 0,
+        "orders": 0,
+        "cancelled": 0,
+        "future": False,
+        "today": False,
+    }
+    assert days[9]["revenue"] == 447 and days[9]["orders"] == 2
+    assert days[17]["today"] is True
+    assert (days[17]["revenue"], days[17]["orders"], days[17]["cancelled"]) == (129, 1, 1)
+    assert days[18] == {
+        "date": "2026-11-19",
+        "day": 19,
+        "weekday": 3,
+        "revenue": None,
+        "orders": None,
+        "cancelled": None,
+        "future": True,
+        "today": False,
+    }
+
+
+def test_calendar_past_month_and_future_month(shop: Session) -> None:
+    oct_ = calendar(shop, "2026-10", NOW.date())
+    assert len(oct_["days"]) == 31
+    assert oct_["target"] == 100_000
+    assert (oct_["revenue"], oct_["tradingDays"], oct_["bestDay"]) == (159, 1, "2026-10-20")
+    assert not any(d["future"] for d in oct_["days"])
+    dec = calendar(shop, "2026-12", NOW.date())
+    assert all(d["future"] for d in dec["days"])
+    assert (dec["revenue"], dec["avgDaily"], dec["bestDay"]) == (0, 0, None)
 
 
 def test_hourly_extends_past_opening_hours(shop: Session) -> None:

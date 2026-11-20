@@ -286,7 +286,7 @@ a single "No sales yet" tip. `_menu` uses the `targets` module's `slow_mover_pct
   `background` → `--cream`. `applyTheme` sets them on `document.documentElement`, overriding the
   `:root` values in `styles.css`. Bad hex values fall back to the defaults.
 - It also sets `document.title` to `<shop_name> POS`.
-- `useConfig()` exposes `enabled(key)`, `settings(key)`, `reload()`, `default_pin`, `version`,
+- `useConfig()` exposes `enabled(key)`, `settings(key)`, `reload()`, `default_pin`, `pin_length`, `version`,
   `loaded`, `error`.
 
 ### Admin page and form generation

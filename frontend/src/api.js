@@ -131,10 +131,18 @@ export const inrShort = (n) => {
   if (n >= 1e3) return '₹' + (n / 1e3).toFixed(n % 1e3 === 0 ? 0 : 1) + 'k';
   return '₹' + Math.round(n);
 };
-export const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+// ---------- Shop clock ----------
+// The server works in the shop's time zone (WB_TIMEZONE). Every dashboard response carries the
+// shop-local time as `now`; we keep the difference to this device's clock so dates and the clock in
+// the top bar match the server's numbers even if a tablet's clock or time zone is wrong.
+let clockOffset = 0;
+export function syncShopClock(iso) {
+  const t = iso ? new Date(iso).getTime() : NaN; // no zone in the string: read as device-local
+  if (Number.isFinite(t)) clockOffset = t - Date.now();
+}
+export const shopNow = () => new Date(Date.now() + clockOffset);
+export const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const today = () => isoDate(shopNow());
 export const thisMonth = () => today().slice(0, 7);
 
 // Category colours (validated for colour-blind separation) and item placeholders.

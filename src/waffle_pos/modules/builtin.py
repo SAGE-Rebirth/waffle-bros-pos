@@ -98,6 +98,9 @@ class AdminSettings(ModuleSettings):
     pin_hash: str = Field("", title="PIN hash", json_schema_extra={"hidden": True})
     pin_salt: str = Field("", title="PIN salt", json_schema_extra={"hidden": True})
     token_secret: str = Field("", title="Session secret", json_schema_extra={"hidden": True})
+    # How many digits the PIN has (0 = not known yet), so the sign-in pad can show the right number
+    # of dots. Recorded when the PIN is set, and on the first sign-in for PINs set before this existed.
+    pin_length: int = Field(0, ge=0, le=8, title="PIN length", json_schema_extra={"hidden": True})
     session_hours: int = Field(12, ge=1, le=168, title="Stay signed in for (hours)")
 
 
@@ -189,7 +192,7 @@ ADMIN = Module(
     icon="🔐",
     order=99,
     secret_fields=frozenset({"pin_hash", "pin_salt", "token_secret"}),
-    internal_fields=frozenset({"pin_hash", "pin_salt", "token_secret"}),
+    internal_fields=frozenset({"pin_hash", "pin_salt", "token_secret", "pin_length"}),
 )
 GST = Module(
     "gst",

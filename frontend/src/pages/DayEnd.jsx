@@ -1,8 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api, inr, pinApi, today } from '../api.js';
 
+// #dayend?date=YYYY-MM-DD opens a given day (the Dashboard calendar links here).
+const dateFromHash = () => {
+  const m = /[?&]date=(\d{4}-\d{2}-\d{2})/.exec(location.hash);
+  return m && m[1] <= today() ? m[1] : today();
+};
+
 export default function DayEnd({ notify, onChange }) {
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(dateFromHash);
+  useEffect(() => {
+    const want = date === today() ? '#dayend' : `#dayend?date=${date}`;
+    if (location.hash !== want) history.replaceState(null, '', want);
+  }, [date]);
   const [d, setD] = useState(null);
   const [orders, setOrders] = useState([]);
   const load = useCallback(() => {

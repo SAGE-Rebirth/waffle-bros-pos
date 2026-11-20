@@ -45,8 +45,8 @@ exposes data needs the owner's PIN.
 | --- | --- |
 | `GET /api/menu` | The billing screen needs it. |
 | `POST /api/orders`, `GET /api/orders`, `GET /api/orders/{id}` | Billing and reprinting at the counter. Prices always come from the server's menu, so a client can't set its own. |
-| `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/day-end`, `GET /api/expenses` | Reading the numbers is part of running the shop. |
-| `GET /api/config` | The screens load the theme and billing options from it. Secret settings are left out. |
+| `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/calendar`, `GET /api/day-end`, `GET /api/expenses` | Reading the numbers is part of running the shop. |
+| `GET /api/config` | The screens load the theme and billing options from it. Secret settings are left out. It does say how many digits the PIN has (`pin_length`, see below). |
 | `POST /api/admin/login` | Throttled (see below). |
 | `GET /api/health` | Docker's health check. |
 | `POST /api/integrations/whatsapp` | Always answers 501 (planned for phase 2). |
@@ -100,6 +100,14 @@ A 4-digit PIN has only 10,000 values, so guessing must be slow:
 
 At these rates, trying all 10,000 four-digit PINs takes days instead of minutes. A 6-digit PIN
 makes it far longer still.
+
+**PIN length is public.** `GET /api/config` returns `pin_length` so the sign-in pad can show the
+right number of dots and sign in on the last digit (as phone lock screens do). This tells a guesser
+which length to try, which removes the other lengths from the search: for a 6-digit PIN, 10^6
+guesses instead of about 1.1 x 10^8 across 4-8 digits. With the throttle above that is still years
+of guessing, so we accepted it for the clearer pad. The length is recorded when the PIN is set
+(and, for a PIN set before this existed, on the next correct sign-in); it is never derived from the
+hash.
 
 ### Input limits (`schemas.py`, `modules/builtin.py`)
 

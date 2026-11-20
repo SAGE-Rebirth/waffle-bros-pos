@@ -137,7 +137,8 @@ def test_dashboard_shapes(api_client: TestClient) -> None:
     w03 = _item_id(api_client, "W03")
     api_client.post("/api/orders", json={"items": [{"item_id": w03, "qty": 3}]})
     d = api_client.get("/api/dashboard?period=today").json()
-    assert set(d) == {"target", "charts", "insights", "items"}
+    assert set(d) == {"now", "target", "charts", "insights", "items"}
+    assert d["now"].startswith(d["target"]["month"])
     assert set(d["charts"]) >= {
         "hourly",
         "daily",
@@ -155,6 +156,20 @@ def test_dashboard_shapes(api_client: TestClient) -> None:
     day = api_client.get("/api/day-end").json()
     assert day["orders"] == 1
     assert day["revenue"] == 567
+
+
+def test_calendar(api_client: TestClient) -> None:
+    w03 = _item_id(api_client, "W03")
+    api_client.post("/api/orders", json={"items": [{"item_id": w03, "qty": 2}]})
+    cal = api_client.get("/api/calendar").json()
+    today = next(d for d in cal["days"] if d["today"])
+    assert today["date"] == cal["today"]
+    assert (today["revenue"], today["orders"]) == (378, 1)
+    assert (cal["revenue"], cal["orders"], cal["tradingDays"]) == (378, 1, 1)
+    assert cal["firstSale"] == cal["today"]
+    assert api_client.get("/api/calendar?month=2020-02").json()["days"][-1]["date"] == "2020-02-29"
+    assert api_client.get("/api/calendar?month=2026-13").status_code == 400
+    assert api_client.get("/api/calendar?month=nov").status_code == 400
 
 
 def test_menu_editing(api_client: TestClient) -> None:
