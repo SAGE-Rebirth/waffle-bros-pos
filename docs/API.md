@@ -19,7 +19,7 @@ change things need an admin token in `$T`: see [Admin & config](#admin--config).
 
 - [Conventions](#conventions)
 - [Menu](#menu): `GET /api/menu`, `POST /api/categories`, `PUT /api/categories/{id}`, `DELETE /api/categories/{id}`, `POST /api/categories/reorder`, `POST /api/items`, `PUT /api/items/{id}`, `DELETE /api/items/{id}`, `POST /api/items/reorder`
-- [Orders](#orders): `POST /api/orders`, `GET /api/orders`, `GET /api/orders/{id}`, `POST /api/orders/{id}/cancel`
+- [Orders](#orders): `POST /api/orders`, `GET /api/orders`, `GET /api/bills`, `GET /api/orders/{id}`, `POST /api/orders/{id}/cancel`
 - [Dashboard](#dashboard): `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/calendar`, `GET /api/day-end`
 - [Finance](#finance): `PUT /api/targets/{month}`, `GET /api/expenses`, `POST /api/expenses`, `DELETE /api/expenses/{id}`
 - [Admin & config](#admin--config): `GET /api/config`, `POST /api/admin/login`, `POST /api/admin/pin`, `GET /api/admin/modules`, `PUT /api/admin/modules/{key}`, `GET /api/admin/google-sheet/script`
@@ -310,6 +310,41 @@ curl 'http://localhost:4000/api/orders?date=2026-11-17'
 
 Returns a JSON array of orders (shape above).
 
+### `GET /api/bills`: browse past bills, a page at a time
+
+The Bills screen (`#bills`). Bills on any day, newest first, **including cancelled ones**, with
+filters and pages. All query parameters are optional.
+
+| Parameter | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `from` | `YYYY-MM-DD` | no limit | First shop-local day, inclusive. |
+| `to` | `YYYY-MM-DD` | no limit | Last shop-local day, inclusive. 400 if before `from`. |
+| `q` | string <= 40 | | Case-insensitive text found in the bill number (`014`, `WB261120`), an item name, or the customer's name or phone. `%` and `_` are matched literally. |
+| `status` | `all` / `paid` / `cancelled` | `all` | |
+| `payment` | `cash` / `upi` / `card` | any | |
+| `page` | integer 1-100000 | 1 | A page past the last one returns no `items`. |
+| `page_size` | integer 1-100 | 25 | |
+
+```bash
+curl 'http://localhost:4000/api/bills?from=2026-11-01&to=2026-11-20&q=nutella&page=2'
+```
+
+| Field | Meaning |
+| --- | --- |
+| `items` | This page's bills (order shape above), newest first |
+| `page`, `page_size` | As asked |
+| `pages` | `ceil(total / page_size)`, at least 1 |
+| `total` | Bills matching every filter, on all pages |
+| `paid`, `cancelled` | Bills matching every filter **except** `status`, by status (for the All / Paid / Cancelled tabs) |
+| `paid_total` | Sum of `total` over those paid bills |
+
+```json
+{"items": [{"id": 532, "bill_no": "WB261120-014", ...}], "page": 2, "page_size": 25, "pages": 3,
+ "total": 61, "paid": 60, "cancelled": 1, "paid_total": 21455.0}
+```
+
+Errors: 400 `` `from` must be on or before `to` ``, 422 for a bad date, status, payment or size.
+
 ### `GET /api/orders/{order_id}`: one bill
 
 ```bash
@@ -331,8 +366,8 @@ Errors: 404 `Not found`.
 
 ### `POST /api/orders/{order_id}/cancel`: cancel a bill (Admin)
 
-Needs the admin token, so a paid bill can't be quietly cancelled at the counter (the Day End screen
-asks for the PIN). Sets `status` to `cancelled` and returns the bill. It stays in the database (bills are history) but
+Needs the admin token, so a paid bill can't be quietly cancelled at the counter (the Day End and
+Bills screens ask for the PIN). Sets `status` to `cancelled` and returns the bill. It stays in the database (bills are history) but
 stops counting towards revenue, targets and item stats; the day-end sheet lists it under
 `cancelled`. The next Google Sheet sync appends the bill again with status `cancelled`. No body.
 

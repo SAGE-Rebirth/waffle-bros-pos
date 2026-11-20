@@ -1,8 +1,9 @@
 """Creating, listing and cancelling bills."""
 
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from waffle_pos import clock
@@ -100,6 +101,90 @@ def list_orders(session: Session, day: date) -> list[Order]:
         .order_by(Order.id.desc())
     )
     return list(session.scalars(stmt))
+
+
+@dataclass(frozen=True)
+class BillFilter:
+    """What the Bills page asks for. Dates are shop-local and inclusive; None means open-ended."""
+
+    start: date | None = None
+    end: date | None = None
+    q: str = ""
+    status: str = "all"  # all | paid | cancelled
+    payment: str | None = None  # cash | upi | card
+
+
+@dataclass(frozen=True)
+class BillPage:
+    orders: list[Order]
+    total: int  # bills matching every filter, across all pages
+    paid: int  # bills matching the filters except status, by status
+    cancelled: int
+    paid_total: float  # rupees in the paid ones
+
+
+def _like(text: str) -> str:
+    """A LIKE pattern matching `text` anywhere, with % and _ taken literally."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _conditions(f: BillFilter) -> list[ColumnElement[bool]]:
+    """WHERE parts for every filter except status (the page shows per-status counts)."""
+    where: list[ColumnElement[bool]] = []
+    if f.start is not None:
+        where.append(Order.created_at >= clock.day_bounds(f.start)[0])
+    if f.end is not None:
+        where.append(Order.created_at < clock.day_bounds(f.end)[0] + timedelta(days=1))
+    if f.payment:
+        where.append(Order.payment_method == f.payment)
+    q = f.q.strip()
+    if q:
+        pat = _like(q.lower())
+        line_match = (
+            select(OrderItem.id)
+            .where(OrderItem.order_id == Order.id, func.lower(OrderItem.name).like(pat, escape="\\"))
+            .exists()
+        )
+        where.append(
+            or_(
+                func.lower(Order.bill_no).like(pat, escape="\\"),
+                func.lower(func.coalesce(Order.customer_name, "")).like(pat, escape="\\"),
+                func.coalesce(Order.customer_phone, "").like(pat, escape="\\"),
+                line_match,
+            )
+        )
+    return where
+
+
+def search_orders(session: Session, f: BillFilter, page: int = 1, page_size: int = 25) -> BillPage:
+    """One page of bills, newest first, plus counts for the whole filtered range."""
+    where = _conditions(f)
+    paid, cancelled, paid_total = session.execute(
+        select(
+            func.count(case((Order.status == "paid", 1))),
+            func.count(case((Order.status == "cancelled", 1))),
+            func.coalesce(func.sum(case((Order.status == "paid", Order.total))), 0.0),
+        ).where(*where)
+    ).one()
+    if f.status in ("paid", "cancelled"):
+        where.append(Order.status == f.status)
+    total = {"paid": paid, "cancelled": cancelled}.get(f.status, paid + cancelled)
+    stmt = (
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(*where)
+        .order_by(Order.created_at.desc(), Order.id.desc())
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    )
+    return BillPage(
+        orders=list(session.scalars(stmt)),
+        total=int(total),
+        paid=int(paid),
+        cancelled=int(cancelled),
+        paid_total=money(float(paid_total)),
+    )
 
 
 def cancel_order(session: Session, order_id: int) -> Order | None:

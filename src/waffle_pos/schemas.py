@@ -190,6 +190,23 @@ class OrderOut(ORM):
     items: list[OrderItemOut]
 
 
+BillStatus = Literal["all", "paid", "cancelled"]
+MAX_PAGE_SIZE = 100
+
+
+class BillsPageOut(BaseModel):
+    """One page of the bill history (`GET /api/bills`)."""
+
+    items: list[OrderOut] = Field(description="This page's bills, newest first.")
+    page: int = Field(description="This page, from 1.")
+    page_size: int
+    pages: int = Field(description="Number of pages for the current filters (at least 1).")
+    total: int = Field(description="Bills matching every filter, on all pages.")
+    paid: int = Field(description="Paid bills matching the filters other than `status`.")
+    cancelled: int = Field(description="Cancelled bills matching the filters other than `status`.")
+    paid_total: float = Field(description="Rupees in those paid bills (sum of `total`).")
+
+
 # ---------- Targets & expenses ----------
 class TargetIn(In):
     amount: float = Field(gt=0, le=MAX_MONEY * 10, description="Revenue target for the month, in rupees.")

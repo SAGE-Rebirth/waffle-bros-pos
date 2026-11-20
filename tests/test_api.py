@@ -106,6 +106,29 @@ def test_cancel_removes_order_from_sales(api_client: TestClient) -> None:
     assert api_client.get("/api/orders/999").status_code == 404
 
 
+def test_bills_history_pages_and_filters(api_client: TestClient) -> None:
+    w03 = _item_id(api_client, "W03")
+    ids = [api_client.post("/api/orders", json={"items": [{"item_id": w03}]}).json()["id"] for _ in range(3)]
+    api_client.post(f"/api/orders/{ids[0]}/cancel", headers=_admin(api_client))
+    day = f"{clock.today():%Y-%m-%d}"
+    r = api_client.get(f"/api/bills?from={day}&to={day}&page_size=2")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["total"], body["pages"], body["page"], body["page_size"]) == (3, 2, 1, 2)
+    assert (body["paid"], body["cancelled"], body["paid_total"]) == (2, 1, 378)
+    assert [o["id"] for o in body["items"]] == [ids[2], ids[1]]
+    assert [o["id"] for o in api_client.get("/api/bills?page=2&page_size=2").json()["items"]] == [ids[0]]
+    cancelled = api_client.get("/api/bills?status=cancelled").json()
+    assert [o["status"] for o in cancelled["items"]] == ["cancelled"]
+    assert api_client.get("/api/bills?q=-002").json()["total"] == 1
+    assert api_client.get("/api/bills?from=2026-11-20&to=2026-11-01").status_code == 400
+    assert api_client.get("/api/bills?page_size=101").status_code == 422
+    assert api_client.get("/api/bills?status=open").status_code == 422
+    assert api_client.get(f"/api/bills?q={'x' * 41}").status_code == 422
+    empty = api_client.get("/api/bills?from=2020-01-01&to=2020-01-31").json()
+    assert (empty["total"], empty["pages"], empty["items"]) == (0, 1, [])
+
+
 def test_targets_and_expenses_feed_the_dashboard(api_client: TestClient) -> None:
     h = _admin(api_client)
     month = clock.month_key(clock.today())

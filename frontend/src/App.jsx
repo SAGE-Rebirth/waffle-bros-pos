@@ -3,6 +3,7 @@ import { api, inr, shopNow, syncShopClock } from './api.js';
 import Billing from './pages/Billing.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import DayEnd from './pages/DayEnd.jsx';
+import Bills from './pages/Bills.jsx';
 import Admin from './pages/Admin.jsx';
 import PinPrompt from './components/PinPrompt.jsx';
 import { useConfig } from './config.jsx';
@@ -20,12 +21,13 @@ const PAGES = [
   ['billing', 'Billing'],
   ['dashboard', 'Dashboard'],
   ['dayend', 'Day End'],
+  ['bills', 'Bills'],
   ['admin', 'Admin'],
 ];
 
 // Old links (#settings) land on the admin dashboard.
 const ALIASES = { settings: 'admin' };
-// The hash is the page, optionally with a query: #dayend?date=2026-11-19.
+// The hash is the page, optionally with a query: #dayend?date=2026-11-19, #bills?from=…&to=….
 const hashPage = () => location.hash.slice(1).split('?')[0];
 const pageFromHash = () => {
   const h = hashPage();
@@ -81,6 +83,7 @@ export default function App() {
         {page === 'billing' && <Billing onOrder={refresh} notify={notify} goAdmin={() => setPage('admin')} />}
         {page === 'dashboard' && <Dashboard notify={notify} onChange={refresh} />}
         {page === 'dayend' && <DayEnd notify={notify} onChange={refresh} />}
+        {page === 'bills' && <Bills notify={notify} onChange={refresh} />}
         {page === 'admin' && <Admin notify={notify} onChange={refresh} />}
       </main>
       {toast && <div className="toast">{toast}</div>}

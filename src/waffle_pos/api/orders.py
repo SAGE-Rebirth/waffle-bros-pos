@@ -7,10 +7,19 @@ from fastapi import APIRouter, Path, Query
 
 from waffle_pos import clock
 from waffle_pos.api.deps import ADMIN_401, ADMIN_403, DB, INVALID, AdminOnly, bad_request, errors
-from waffle_pos.schemas import OrderCreate, OrderOut
+from waffle_pos.schemas import (
+    MAX_PAGE_SIZE,
+    BillsPageOut,
+    BillStatus,
+    OrderCreate,
+    OrderOut,
+    PaymentMethod,
+)
 from waffle_pos.services import orders
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+# The bill history lives at /api/bills so it can't clash with /api/orders/{order_id}.
+bills_router = APIRouter(prefix="/api/bills", tags=["orders"])
 
 OrderId = Annotated[int, Path(description="The order's numeric `id` (not its `bill_no`).")]
 
@@ -77,3 +86,54 @@ def cancel_order(order_id: OrderId, db: DB) -> OrderOut:
     if order is None:
         raise bad_request("Not found", 404)
     return OrderOut.model_validate(order)
+
+
+@bills_router.get(
+    "",
+    summary="Browse past bills, a page at a time",
+    responses=errors({400: "`from` is after `to`.", 422: INVALID}),
+)
+def list_bills(
+    *,
+    db: DB,
+    from_: Annotated[
+        date | None,
+        Query(alias="from", description="First shop-local day, `YYYY-MM-DD` (inclusive). Omit for no limit."),
+    ] = None,
+    to: Annotated[
+        date | None,
+        Query(description="Last shop-local day, `YYYY-MM-DD` (inclusive). Omit for no limit."),
+    ] = None,
+    q: Annotated[
+        str,
+        Query(
+            max_length=40,
+            description="Search text: part of a bill number (`014`, `WB261120`), an item name, "
+            "or a customer's name or phone. Case-insensitive.",
+        ),
+    ] = "",
+    status: Annotated[BillStatus, Query(description="`all`, `paid` or `cancelled`.")] = "all",
+    payment: Annotated[PaymentMethod | None, Query(description="Only this payment method.")] = None,
+    page: Annotated[int, Query(ge=1, le=100_000, description="Page number, from 1.")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE, description="Bills per page.")] = 25,
+) -> BillsPageOut:
+    """Bills on any day, newest first, including cancelled ones, with filters and pages.
+
+    `total` and `pages` count every bill that matches; `paid`, `cancelled` and `paid_total` ignore
+    the `status` filter so a screen can show counts on its All / Paid / Cancelled tabs. A page past
+    the last one comes back with no `items`.
+    """
+    if from_ is not None and to is not None and from_ > to:
+        raise bad_request("`from` must be on or before `to`")
+    f = orders.BillFilter(start=from_, end=to, q=q, status=status, payment=payment)
+    result = orders.search_orders(db, f, page=page, page_size=page_size)
+    return BillsPageOut(
+        items=[OrderOut.model_validate(o) for o in result.orders],
+        page=page,
+        page_size=page_size,
+        pages=max(1, -(-result.total // page_size)),
+        total=result.total,
+        paid=result.paid,
+        cancelled=result.cancelled,
+        paid_total=result.paid_total,
+    )

@@ -110,6 +110,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     for module in (menu, orders, dashboard, finance, system, admin):
         app.include_router(module.router)
+    app.include_router(orders.bills_router)
 
     dist = config.frontend_dist
     if (dist / "index.html").exists():

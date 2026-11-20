@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api, inr, pinApi, today } from '../api.js';
 import SalesCalendar from '../components/SalesCalendar.jsx';
+import BillDetail from '../components/BillDetail.jsx';
+import { itemsSummary } from '../bills.js';
 
 const longDate = (iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
@@ -19,6 +21,7 @@ export default function DayEnd({ notify, onChange }) {
   const [d, setD] = useState(null);
   const [orders, setOrders] = useState([]);
   const [rev, setRev] = useState(0); // bumps the calendar after a cancel
+  const [open, setOpen] = useState(null); // the bill shown in the pop-up
   const load = useCallback(() => {
     api.get(`/api/day-end?date=${date}`).then(setD).catch((e) => notify(e.message));
     api.get(`/api/orders?date=${date}`).then((list) => setOrders([...list].sort((a, b) => b.created_at.localeCompare(a.created_at)))).catch(() => {});
@@ -94,23 +97,36 @@ export default function DayEnd({ notify, onChange }) {
         </div>
 
         <div className="card panel span-12">
-          <h3>Bills ({orders.length})</h3>
-          <div className="scroll" style={{ maxHeight: 400 }}>
-            <table className="tbl num">
-              <thead><tr><th>Bill</th><th>Time</th><th>Items</th><th>Type</th><th>Pay</th><th className="r">Total</th><th /></tr></thead>
-              <tbody>{orders.map((o) => (
-                <tr key={o.id} style={o.status === 'cancelled' ? { opacity: 0.5, textDecoration: 'line-through' } : null}>
-                  <td><b>{o.bill_no}</b></td><td>{o.created_at.slice(11, 16)}</td>
-                  <td className="small">{o.items.map((i) => `${i.name} ×${i.qty}`).join(', ')}</td>
-                  <td className="small">{o.order_type}</td><td className="small">{o.payment_method.toUpperCase()}</td>
-                  <td className="r">{inr(o.total)}</td>
-                  <td className="r">{o.status === 'paid' && <button className="btn ghost sm danger" onClick={() => cancel(o)}>Cancel</button>}</td>
-                </tr>
-              ))}</tbody>
-            </table>
+          <div className="panel-head">
+            <h3>Bills ({orders.length})</h3>
+            <a className="btn sm" href={`#bills?from=${date}&to=${date}`}>Open in Bills, with older days ›</a>
           </div>
+          {!orders.length ? <div className="muted small">No bills on this day.</div> : (
+            <div className="scroll" style={{ maxHeight: 440 }}>
+              <table className="tbl num bills-tbl">
+                <thead><tr><th>Bill</th><th>Time</th><th>Items</th><th>Type</th><th>Pay</th><th className="r">Total</th><th /></tr></thead>
+                <tbody>{orders.map((o) => {
+                  const s = itemsSummary(o.items);
+                  return (
+                    <tr key={o.id} className={`click${o.status === 'cancelled' ? ' cancelled' : ''}`} onClick={() => setOpen(o)} tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter') setOpen(o); }}>
+                      <td className="nowrap"><b>{o.bill_no}</b></td><td className="nowrap">{o.created_at.slice(11, 16)}</td>
+                      <td className="bill-items">{s.text}{s.more > 0 && <span className="muted"> +{s.more} more</span>}</td>
+                      <td className="small nowrap">{o.order_type}</td><td className="small nowrap">{o.payment_method.toUpperCase()}</td>
+                      <td className="r nowrap"><b className="bill-total">{inr(o.total)}</b></td>
+                      <td className="r nowrap">{o.status === 'paid'
+                        ? <button className="btn ghost sm danger" onClick={(e) => { e.stopPropagation(); cancel(o); }}>Cancel</button>
+                        : <span className="pill bad">Cancelled</span>}</td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
+      {open && <BillDetail order={open} notify={notify} onClose={() => setOpen(null)}
+        onCancelled={(o) => { setOpen(o); load(); onChange(); setRev((n) => n + 1); }} />}
     </div>
   );
 }

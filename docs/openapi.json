@@ -1,6 +1,65 @@
 {
   "components": {
     "schemas": {
+      "BillsPageOut": {
+        "description": "One page of the bill history (`GET /api/bills`).",
+        "properties": {
+          "cancelled": {
+            "description": "Cancelled bills matching the filters other than `status`.",
+            "title": "Cancelled",
+            "type": "integer"
+          },
+          "items": {
+            "description": "This page's bills, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/OrderOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "description": "This page, from 1.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "pages": {
+            "description": "Number of pages for the current filters (at least 1).",
+            "title": "Pages",
+            "type": "integer"
+          },
+          "paid": {
+            "description": "Paid bills matching the filters other than `status`.",
+            "title": "Paid",
+            "type": "integer"
+          },
+          "paid_total": {
+            "description": "Rupees in those paid bills (sum of `total`).",
+            "title": "Paid Total",
+            "type": "number"
+          },
+          "total": {
+            "description": "Bills matching every filter, on all pages.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "pages",
+          "total",
+          "paid",
+          "cancelled",
+          "paid_total"
+        ],
+        "title": "BillsPageOut",
+        "type": "object"
+      },
       "CategoryAmount": {
         "properties": {
           "amount": {
@@ -1390,6 +1449,169 @@
         "summary": "Download a database backup",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/bills": {
+      "get": {
+        "description": "Bills on any day, newest first, including cancelled ones, with filters and pages.\n\n`total` and `pages` count every bill that matches; `paid`, `cancelled` and `paid_total` ignore\nthe `status` filter so a screen can show counts on its All / Paid / Cancelled tabs. A page past\nthe last one comes back with no `items`.",
+        "operationId": "list_bills_api_bills_get",
+        "parameters": [
+          {
+            "description": "First shop-local day, `YYYY-MM-DD` (inclusive). Omit for no limit.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First shop-local day, `YYYY-MM-DD` (inclusive). Omit for no limit.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Last shop-local day, `YYYY-MM-DD` (inclusive). Omit for no limit.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last shop-local day, `YYYY-MM-DD` (inclusive). Omit for no limit.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "Search text: part of a bill number (`014`, `WB261120`), an item name, or a customer's name or phone. Case-insensitive.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Search text: part of a bill number (`014`, `WB261120`), an item name, or a customer's name or phone. Case-insensitive.",
+              "maxLength": 40,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "`all`, `paid` or `cancelled`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "description": "`all`, `paid` or `cancelled`.",
+              "enum": [
+                "all",
+                "paid",
+                "cancelled"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this payment method.",
+            "in": "query",
+            "name": "payment",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "cash",
+                    "upi",
+                    "card"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this payment method.",
+              "title": "Payment"
+            }
+          },
+          {
+            "description": "Page number, from 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Page number, from 1.",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Bills per page.",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "description": "Bills per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillsPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "`from` is after `to`."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "Browse past bills, a page at a time",
+        "tags": [
+          "orders"
         ]
       }
     },
