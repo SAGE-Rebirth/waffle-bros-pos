@@ -1174,6 +1174,8 @@ def test_sync_settings_and_script(client: TestClient) -> None:
     assert script.status_code == 200
     assert script.headers["content-type"].startswith("text/plain")
     assert "function doPost" in script.text
+    assert f'const SECRET = "{shared}";' in script.text  # saved secret already filled in
+    assert "PASTE_THE_SECRET_FROM_THE_POS';" not in script.text
 
 
 def test_backup_contains_the_orders(client: TestClient, tmp_path: Path) -> None:

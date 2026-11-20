@@ -710,9 +710,10 @@ function ModuleCard({ mod, onSaved, notify }) {
           {mod.key === 'google_sheets' && script && (
             <div className="script-box">
               <p className="small">
-                In the Google Sheet: <b>Extensions → Apps Script</b>, replace everything with this script, put the
-                secret above into <code>SECRET</code>, then <b>Deploy → New deployment → Web app</b> (Execute as: Me,
-                Who has access: Anyone). Paste the web app URL above, save, switch on and press Sync now.
+                In the Google Sheet: <b>Extensions → Apps Script</b>, replace everything with this script (your saved
+                secret is already in it; if you change the secret, save first, then copy the script again), then
+                <b>Deploy → New deployment → Web app</b> (Execute as: Me, Who has access: Anyone). Paste the web app
+                URL above, save, switch on and press Sync now.
               </p>
               <textarea readOnly rows={10} value={script} onFocus={(e) => e.target.select()} aria-label="Apps Script code" />
               <button className="btn ghost" onClick={() => setScript('')}>Hide script</button>

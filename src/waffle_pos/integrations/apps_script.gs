@@ -3,8 +3,9 @@
  *
  * Setup (once):
  *  1. Open the Google Sheet, then Extensions -> Apps Script. Delete what's there and paste this file.
- *  2. Replace PASTE_THE_SECRET_FROM_THE_POS below with the "Secret" from
- *     POS Admin -> Modules -> Google Sheet sync (any long random text, the same in both places).
+ *  2. SECRET below must be the "Secret" from POS Admin -> Modules -> Google Sheet sync. The POS fills
+ *     it in for you when you copy this script after saving a secret; otherwise replace
+ *     PASTE_THE_SECRET_FROM_THE_POS with it (the same text in both places).
  *  3. Deploy -> New deployment -> type "Web app". Execute as: Me. Who has access: Anyone.
  *     Approve the permissions Google asks for (it only needs this spreadsheet).
  *  4. Copy the web app URL (ends in /exec) into the POS admin page, switch sync on, press Sync now.
@@ -13,6 +14,8 @@
  * the script can only write the POS tabs in this one spreadsheet.
  */
 const SECRET = 'PASTE_THE_SECRET_FROM_THE_POS';
+// Split in two so that a find-and-replace of the placeholder above can't change this one too.
+const PLACEHOLDER = 'PASTE_THE_' + 'SECRET_FROM_THE_POS';
 const ALLOWED_TABS = ['Orders', 'OrderItems', 'Expenses', 'Daily', 'Items', 'Monthly'];
 const MAX_ROWS = 5000;
 
@@ -23,7 +26,7 @@ function doPost(e) {
   } catch (err) {
     return reply_({ ok: false, error: 'The request was not valid JSON' });
   }
-  if (!SECRET || SECRET === 'PASTE_THE_SECRET_FROM_THE_POS' || SECRET.length < 16) {
+  if (!SECRET || SECRET === PLACEHOLDER || SECRET.length < 16) {
     return reply_({ ok: false, error: 'Set SECRET in the Apps Script (at least 16 characters)' });
   }
   if (typeof body.secret !== 'string' || !safeEquals_(body.secret, SECRET)) {

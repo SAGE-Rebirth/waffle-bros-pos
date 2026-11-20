@@ -268,6 +268,25 @@ def test_apps_script_source_is_shipped() -> None:
     src = sheets.apps_script_source()
     assert "function doPost(e)" in src
     assert "PASTE_THE_SECRET_FROM_THE_POS" in src
+    # The guard must not contain the whole placeholder: a find-and-replace of it in the SECRET line
+    # used to change the guard too, so the script always answered "Set SECRET".
+    assert src.count("PASTE_THE_SECRET_FROM_THE_POS") == 2  # the setup comment and the SECRET line
+    assert "SECRET === PLACEHOLDER" in src
+
+
+def test_find_and_replace_of_the_placeholder_leaves_the_guard_working() -> None:
+    secret = "0123456789abcdef0123456789abcdef"  # noqa: S105 - test value
+    src = sheets.apps_script_source().replace("PASTE_THE_SECRET_FROM_THE_POS", secret)
+    assert f"const SECRET = '{secret}';" in src
+    assert "const PLACEHOLDER = 'PASTE_THE_' + 'SECRET_FROM_THE_POS';" in src
+
+
+def test_saved_secret_is_filled_into_the_script() -> None:
+    src = sheets.apps_script_source("ab'cd\\ef\u2028gh</script>12345")
+    assert sheets.SECRET_LINE not in src
+    line = next(x for x in src.splitlines() if x.startswith("const SECRET = "))
+    assert line == 'const SECRET = "ab\'cd\\\\ef\\u2028gh</script>12345";'
+    assert sheets.apps_script_source("") == sheets.apps_script_source()
     for tab in sheets.TABS:
         assert f"'{tab}'" in src  # every tab the POS sends is on the script's allow-list
 

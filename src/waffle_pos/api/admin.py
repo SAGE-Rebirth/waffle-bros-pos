@@ -13,6 +13,7 @@ from waffle_pos.api.deps import ADMIN_401, ADMIN_403, DB, AdminOnly, SignedIn, b
 from waffle_pos.integrations import sheets
 from waffle_pos.modules import registry
 from waffle_pos.modules.base import Module
+from waffle_pos.modules.builtin import GoogleSheetsSettings
 from waffle_pos.services import auth
 
 router = APIRouter(prefix="/api", tags=["admin"])
@@ -194,11 +195,12 @@ def update_module(key: str, body: ModuleUpdate, db: DB) -> ModuleView:
     response_class=PlainTextResponse,
     responses={200: {"content": {"text/plain": {}}}, **errors({401: ADMIN_401, 403: ADMIN_403})},
 )
-def google_sheet_script() -> str:
-    """The Google Apps Script that receives the POS sync. Paste it into the spreadsheet
-    (Extensions → Apps Script), set its SECRET to the module's secret, and deploy it as a web app;
-    the setup steps are in the comment at the top."""
-    return sheets.apps_script_source()
+def google_sheet_script(db: DB) -> str:
+    """The Google Apps Script that receives the POS sync, with `SECRET` already set to the module's
+    saved secret (left as the placeholder if none is saved yet). Paste it into the spreadsheet
+    (Extensions → Apps Script) and deploy it as a web app; the setup steps are in the comment at the top."""
+    secret = registry.settings_of(db, "google_sheets", GoogleSheetsSettings).secret
+    return sheets.apps_script_source(secret)
 
 
 def _first_error(e: ValueError) -> str:

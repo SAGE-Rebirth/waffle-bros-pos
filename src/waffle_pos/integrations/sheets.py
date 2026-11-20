@@ -14,6 +14,7 @@ confirms it wrote them.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 from collections import defaultdict
@@ -95,9 +96,17 @@ class SheetsError(RuntimeError):
     """Sync failed: the web app could not be reached, refused the secret, or reported an error."""
 
 
-def apps_script_source() -> str:
-    """The Apps Script the owner pastes into the spreadsheet (also shown in docs/README)."""
-    return resources.files("waffle_pos.integrations").joinpath("apps_script.gs").read_text("utf-8")
+SECRET_LINE = "const SECRET = 'PASTE_THE_SECRET_FROM_THE_POS';"  # noqa: S105 - a placeholder
+
+
+def apps_script_source(secret: str = "") -> str:
+    """The Apps Script the owner pastes into the spreadsheet (also shown in docs/README). With a
+    ``secret``, it is filled in, so the owner doesn't have to edit the script by hand."""
+    src = resources.files("waffle_pos.integrations").joinpath("apps_script.gs").read_text("utf-8")
+    if secret:
+        # json.dumps gives a safe JavaScript string literal (quotes, backslashes, U+2028 escaped).
+        src = src.replace(SECRET_LINE, f"const SECRET = {json.dumps(secret)};", 1)
+    return src
 
 
 def _round_half_up(x: float) -> int:

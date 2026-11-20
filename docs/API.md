@@ -956,9 +956,10 @@ Errors:
 
 ### `GET /api/admin/google-sheet/script`: the Apps Script for the Google Sheet (Admin)
 
-Returns the Google Apps Script (`src/waffle_pos/integrations/apps_script.gs`) as `text/plain`. It is
-what the Admin page's **Setup script** button shows. Paste it into the spreadsheet
-(**Extensions → Apps Script**), set its `SECRET` to the module's `secret`, then **Deploy → New
+Returns the Google Apps Script (`src/waffle_pos/integrations/apps_script.gs`) as `text/plain`, with
+`SECRET` already set to the module's saved `secret` (the placeholder `PASTE_THE_SECRET_FROM_THE_POS`
+if none is saved). It is what the Admin page's **Setup script** button shows. Paste it into the
+spreadsheet (**Extensions → Apps Script**), then **Deploy → New
 deployment → Web app** (Execute as: Me, Who has access: Anyone), and put the `/exec` URL into the
 module's `web_app_url`.
 
