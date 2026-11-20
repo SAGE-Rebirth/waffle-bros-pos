@@ -4,6 +4,8 @@ import {
 } from 'recharts';
 import { api, inr, inrShort, pinApi, today, thisMonth, syncShopClock, SERIES } from '../api.js';
 import { useConfig } from '../config.jsx';
+import DashGrid from '../components/DashGrid.jsx';
+import { CARDS, cardTitle, defaultLayout, isDefault, loadLayout, saveLayout, setHidden } from '../layout.js';
 
 const HONEY = SERIES[0];
 const PURPLE = SERIES[1];
@@ -65,7 +67,7 @@ function TargetCard({ t, onSaved, notify }) {
   const monthName = new Date(`${t.month}-01T00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   const todayDone = t.todayRevenue >= t.todayTarget;
   return (
-    <div className="card target-card span-12">
+    <div className="card target-card">
       <Ring pct={t.progressPct} expected={t.expectedPct} />
       <div className="target-main">
         <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -113,7 +115,7 @@ function Charts({ c, now }) {
   const todayDay = now.getDate();
   const avgName = c.hourlyDays ? `Average day (last 4 weeks, ${c.hourlyDays} day${c.hourlyDays === 1 ? '' : 's'} with sales)` : 'Average day (no earlier sales yet)';
   return (
-    <div className="card panel span-8 sales-card">
+    <div className="card panel sales-card">
       <div className="panel-head">
         <h3>Sales</h3>
         <div className="seg">{Object.entries(views).map(([k, l]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
@@ -217,7 +219,7 @@ function Items({ initial }) {
     <div className="f"><div className="k">{k}</div><div className="n">{i ? i.name : '—'}</div><div className="s num">{i ? s(i) : 'No sales yet'}</div></div>
   );
   return (
-    <div className="card panel span-7 fill-card">
+    <div className="card panel fill-card items-card">
       <div className="panel-head">
         <h3>What's selling</h3>
         <div className="seg">{[['today', 'Today'], ['week', '7 days'], ['month', 'This month'], ['all', 'All time']].map(([k, l]) =>
@@ -277,7 +279,7 @@ function Expenses({ month, onChange, notify }) {
   };
   const list = data ? [...data.recurring.map((e) => ({ ...e, rec: true })), ...data.oneOff] : [];
   return (
-    <div className="card panel span-5 fill-card">
+    <div className="card panel fill-card">
       <div className="panel-head"><h3>Expenses this month</h3>{data && <b className="num">{inr(data.total)}</b>}</div>
       <div className="exp-form">
         <select value={category} onChange={(e) => setF({ ...f, category: e.target.value })}>
@@ -384,7 +386,7 @@ function SalesCalendar({ month: current }) {
   const lead = cal ? cal.days[0].weekday : 0;
   const atCurrent = month >= current;
   return (
-    <div className="card panel span-12">
+    <div className="card panel">
       <div className="panel-head">
         <h3>Sales calendar</h3>
         <div className="row">
@@ -434,48 +436,80 @@ function SalesCalendar({ month: current }) {
 export default function Dashboard({ notify, onChange }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
+  const [layout, setLayout] = useState(loadLayout);
+  const [editing, setEditing] = useState(false);
   const load = useCallback(() => api.get('/api/dashboard?period=month').then((x) => { syncShopClock(x.now); setD(x); setErr(''); }).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { saveLayout(layout); }, [layout]);
   const changed = () => { load(); onChange(); };
   if (err) return <div className="page err">{err}</div>;
   if (!d) return <div className="page muted">Loading dashboard…</div>;
+  const cards = {
+    target: <TargetCard t={d.target} onSaved={changed} notify={notify} />,
+    sales: <Charts c={d.charts} now={new Date(d.now)} />,
+    insights: (
+      <div className="card panel insights-card">
+        <h3>Insights</h3>
+        <div className="insights">
+          {d.insights.map((i, k) => (
+            <div key={k} className={`insight ${i.tone}`}><span className="ic">{ICON[i.tone]}</span><div><b>{i.title}</b><p>{i.text}</p></div></div>
+          ))}
+        </div>
+      </div>
+    ),
+    calendar: <SalesCalendar month={d.target.month} />,
+    items: <Items initial={d.items} />,
+    expenses: <Expenses month={thisMonth()} onChange={changed} notify={notify} />,
+    categories: (
+      <div className="card panel">
+        <h3>Sales by category · this month</h3>
+        <SplitBars rows={d.charts.categorySplit} color={(r, i) => SERIES[i % SERIES.length]} />
+      </div>
+    ),
+    weekdays: (
+      <div className="card panel">
+        <h3>Average sales by weekday · last 8 weeks</h3>
+        <SplitBars rows={d.charts.weekday.map((w) => ({ name: w.day, value: w.average, note: w.days ? `×${w.days}` : '' }))} color={HONEY}
+          empty="No sales before today in the last 8 weeks yet." />
+        <p className="small muted card-foot">Average of the days that had sales (×N is how many such days), today not included.</p>
+      </div>
+    ),
+    payments: (
+      <div className="card panel">
+        <h3>Payment methods · this month</h3>
+        <SplitBars rows={d.charts.paymentSplit.map((p) => ({ ...p, name: p.name.toUpperCase() }))} color={PURPLE} />
+      </div>
+    ),
+  };
+  const hidden = CARDS.filter((c) => layout.hidden.includes(c.id));
   return (
     <div className="page">
       <div className="page-head">
         <h1>Dashboard</h1>
-        <span className="muted small">Updates every minute</span>
+        <span className="muted small">{editing ? 'Customising the layout' : `Updates every minute${hidden.length ? ` · ${hidden.length} card${hidden.length === 1 ? '' : 's'} hidden` : ''}`}</span>
         <div className="spacer" style={{ flex: 1 }} />
-        <button className="btn sm" onClick={load}>↻ Refresh</button>
+        {editing ? <>
+          <button className="btn sm" disabled={isDefault(layout)} onClick={() => { setLayout(defaultLayout()); notify('Layout reset'); }}>↺ Reset layout</button>
+          <button className="btn primary sm" onClick={() => setEditing(false)}>Done</button>
+        </> : <>
+          <button className="btn sm" onClick={() => setEditing(true)}>✥ Customise</button>
+          <button className="btn sm" onClick={load}>↻ Refresh</button>
+        </>}
       </div>
-      <div className="dash">
-        <TargetCard t={d.target} onSaved={changed} notify={notify} />
-        <Charts c={d.charts} now={new Date(d.now)} />
-        <div className="card panel span-4 insights-card">
-          <h3>Insights</h3>
-          <div className="insights">
-            {d.insights.map((i, k) => (
-              <div key={k} className={`insight ${i.tone}`}><span className="ic">{ICON[i.tone]}</span><div><b>{i.title}</b><p>{i.text}</p></div></div>
-            ))}
-          </div>
+      {editing && (
+        <div className="customise-bar">
+          <span className="small">Drag a card by its <b>⠿</b> handle, or use ◀ ▶ to move it and − + to change its width. The layout is saved on this device only.</span>
+          {hidden.length > 0 && (
+            <div className="row hidden-cards">
+              <span className="small muted">Hidden:</span>
+              {hidden.map((c) => (
+                <button key={c.id} className="btn sm" onClick={() => setLayout(setHidden(layout, c.id, false))} aria-label={`Show ${cardTitle(c.id)}`}>+ {c.title}</button>
+              ))}
+            </div>
+          )}
         </div>
-        <SalesCalendar month={d.target.month} />
-        <Items initial={d.items} />
-        <Expenses month={thisMonth()} onChange={changed} notify={notify} />
-        <div className="card panel span-4">
-          <h3>Sales by category · this month</h3>
-          <SplitBars rows={d.charts.categorySplit} color={(r, i) => SERIES[i % SERIES.length]} />
-        </div>
-        <div className="card panel span-4">
-          <h3>Average sales by weekday · last 8 weeks</h3>
-          <SplitBars rows={d.charts.weekday.map((w) => ({ name: w.day, value: w.average, note: w.days ? `×${w.days}` : '' }))} color={HONEY}
-            empty="No sales before today in the last 8 weeks yet." />
-          <p className="small muted card-foot">Average of the days that had sales (×N is how many such days), today not included.</p>
-        </div>
-        <div className="card panel span-4">
-          <h3>Payment methods · this month</h3>
-          <SplitBars rows={d.charts.paymentSplit.map((p) => ({ ...p, name: p.name.toUpperCase() }))} color={PURPLE} />
-        </div>
-      </div>
+      )}
+      <DashGrid layout={layout} cards={cards} editing={editing} onChange={setLayout} />
     </div>
   );
 }

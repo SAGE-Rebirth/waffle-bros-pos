@@ -40,13 +40,13 @@ logs: ## Follow the logs of both services
 dev: ## Live-reload copy: screens :5173, API docs :8000/docs, own test data. Ctrl+C stops
 	$(DEV_COMPOSE) up --build
 
-check: ## What CI checks: lint, types, tests, OpenAPI drift, screens build (needs uv + npm)
+check: ## What CI checks: lint, types, tests, OpenAPI drift, screens tests + build (needs uv + npm)
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy
 	uv run pytest
 	uv run python -m waffle_pos.openapi --check
-	cd frontend && { [ -d node_modules ] || npm ci; } && npm run build
+	cd frontend && { [ -d node_modules ] || npm ci; } && npm test && npm run build
 
 backup: ## Save a copy of the live database to backups/ (safe while the POS is running)
 	@mkdir -p $(BACKUPS)
