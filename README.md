@@ -114,11 +114,11 @@ It works through a small Google Apps Script that lives inside your sheet. You do
 1. Create a Google Sheet (or use an existing one).
 2. In the POS, open **Admin → Modules → Google Sheet sync**. Press **New secret**: it fills in a long random secret. Press **Save**.
 3. Press **Setup script** and copy the script it shows.
-4. In the Google Sheet, open **Extensions → Apps Script**. Delete what's there and paste the script. Replace `PASTE_THE_SECRET_FROM_THE_POS` with the secret from step 2 (the same text in both places), and save.
+4. In the Google Sheet, open **Extensions → Apps Script**. Delete what's there and paste the script, then save. Your saved secret is already filled in (copy the script again if you change the secret).
 5. In Apps Script, choose **Deploy → New deployment**, type **Web app**. Set **Execute as: Me** and **Who has access: Anyone**, then **Deploy**, and allow the permissions Google asks for. "Anyone" only means the POS doesn't need to sign in to Google; every request must carry the secret.
 6. Copy the **web app URL** (it ends in `/exec`) into **Web app URL** in the POS, save, switch the module on, and press **Sync now**.
 
-If something is wrong, Sync now says what. For example, a wrong secret, a URL that isn't the `/exec` one, or access not set to Anyone. If you change the secret later, put the same value in the script and deploy a new version (**Deploy → Manage deployments → Edit → New version**, which keeps the same URL). Anything typed at the counter that starts with `=`, `+`, `-` or `@` is written as plain text, never as a formula.
+If something is wrong, Sync now says what. For example, a wrong secret, a URL that isn't the `/exec` one, or access not set to Anyone. If you change the secret later, save it, copy the script again (or put the same value in `SECRET`) and deploy a new version (**Deploy → Manage deployments → Edit → New version**, which keeps the same URL). Anything typed at the counter that starts with `=`, `+`, `-` or `@` is written as plain text, never as a formula.
 
 ### What it writes
 
