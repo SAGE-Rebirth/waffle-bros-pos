@@ -69,6 +69,8 @@ waffle-bros-pos/
 │       ├── styles.css         all styles; colours come from CSS variables on :root
 │       ├── components/Receipt.jsx   80 mm bill printed with window.print()
 │       ├── components/PinPrompt.jsx PIN dialog for counter actions that need the admin PIN
+│       ├── components/DashGrid.jsx  Dashboard card grid: Customise mode, drag (dnd-kit), move, resize, hide
+│       ├── layout.js          Dashboard layout maths and per-device storage (pure; tested by layout.test.js)
 │       └── pages/             Billing.jsx, Dashboard.jsx, DayEnd.jsx, Admin.jsx
 ├── tests/                     pytest: conftest.py, test_api, test_modules, test_analytics, test_targets, test_sheets, test_openapi
 ├── docs/                      API.md, openapi.json (generated), ARCHITECTURE.md, SECURITY.md, this file, screenshots
@@ -312,6 +314,30 @@ a single "No sales yet" tip. `_menu` uses the `targets` module's `slow_mover_pct
   nullable `anyOf`. The mapping table is in [ARCHITECTURE.md](ARCHITECTURE.md#how-the-admin-form-is-generated).
   Read-only means either listed in `readonly_fields` or `readOnly` in the schema.
 
+### Dashboard layout (Customise)
+
+Every Dashboard card can be moved, resized and hidden. **✥ Customise** turns on edit mode: each
+card gets a toolbar with a drag handle (⠿), ◀ ▶ to move it, − + for its width (25% to full, in
+twelfths of the grid) and Hide. **↺ Reset layout** goes back to the default.
+
+- `frontend/src/layout.js` holds the card list (`CARDS`: id, title, default width), the layout
+  maths (`sanitize`, `moveCard`, `dropCard`, `resizeCard`, `setHidden`) and storage. It has no
+  React or DOM code so `npm test` (Node's built-in runner, `src/**/*.test.js`) covers it.
+- The layout is `{order, width, hidden}` in `localStorage` under `wb-dashboard-layout-v1`, so
+  each device (counter tablet, owner's laptop) keeps its own. Nothing is stored on the server.
+  Saving the default layout removes the key. Unreadable or blocked storage gives the default.
+- `components/DashGrid.jsx` uses `@dnd-kit/core` + `@dnd-kit/sortable`: a pointer sensor (mouse,
+  touch, pen; 4 px before a drag starts) and a keyboard sensor (space/enter, arrows, escape). Only
+  the handle starts a drag, so scrolling and tapping inside cards work as usual. Cards do not
+  slide while you drag, because their sizes differ so much; the card under the pointer shows a
+  bar on the side where the dragged card will land, and a small chip follows the pointer.
+- Below 1100 px wide every card is full width (as before), so the width buttons are hidden there.
+
+To add a card: add it to `CARDS` in `layout.js` (a saved layout from before gets it slotted in
+after its default neighbour) and to the `cards` map in `Dashboard.jsx`. Card ids are stored on
+devices, so don't rename one; give its root element `className="card ..."` without a `span-*`
+class (the grid cell sets the width).
+
 ### api.js and the admin token
 
 - `req(method, url, body, withAuth)` sends JSON, parses the reply, and on failure throws an `Error`
@@ -481,6 +507,7 @@ tests.
 | `tests/test_flow.py` | the whole shop through the HTTP API only: fresh install, owner setup, a trading day, day-end, validation errors, sync settings and script, backup contents, restart, front end built or not; its last test fails if any route in the OpenAPI schema was never answered successfully |
 | `tests/test_security.py` | the security controls: default-PIN 403 on every admin route, sign-in throttle (unit and HTTP), odd PINs and tokens, Host check, body limit, security headers, NaN/Infinity amounts, input limits, image rules, huge ids, formula escaping and one-sync-at-a-time |
 | `tests/test_openapi.py` | `docs/openapi.json` is up to date, every operation has a summary, description and tag, `--check` mode |
+| `frontend/src/layout.test.js` | Dashboard layout (`npm test`): default layout, bad or old saved layouts, unknown and new cards, allowed widths, move/drop/resize/hide, never hiding every card, save/load round trip, blocked storage |
 
 Fixtures:
 
