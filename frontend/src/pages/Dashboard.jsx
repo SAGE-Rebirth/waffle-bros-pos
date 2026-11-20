@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ComposedChart, Line, Area, ReferenceLine,
 } from 'recharts';
-import { api, inr, inrShort, pinApi, today, thisMonth, SERIES } from '../api.js';
+import { api, inr, inrShort, pinApi, today, thisMonth, syncShopClock, SERIES } from '../api.js';
 import { useConfig } from '../config.jsx';
 
 const HONEY = SERIES[0];
@@ -19,8 +19,10 @@ function Ring({ pct, expected }) {
     <div className="ring">
       <svg width="200" height="200" viewBox="0 0 200 200">
         <circle cx="100" cy="100" r={r} fill="none" stroke="#f1e6d3" strokeWidth="16" />
-        <circle cx="100" cy="100" r={r} fill="none" stroke={pct >= expected ? '#2e7d32' : '#F6B92B'} strokeWidth="16" strokeLinecap="round"
-          strokeDasharray={`${(p / 100) * c} ${c}`} />
+        {p > 0 && (
+          <circle cx="100" cy="100" r={r} fill="none" stroke={pct >= expected ? '#2e7d32' : '#F6B92B'} strokeWidth="16" strokeLinecap="round"
+            strokeDasharray={`${(p / 100) * c} ${c}`} />
+        )}
         {/* tick showing where an even pace would be today */}
         <line x1="100" y1="6" x2="100" y2="22" stroke={CHOC} strokeWidth="3" strokeLinecap="round"
           transform={`rotate(${(Math.min(100, expected) / 100) * 360} 100 100)`} />
@@ -99,64 +101,78 @@ function TargetCard({ t, onSaved, notify }) {
   );
 }
 
-function Charts({ c }) {
+const hourRange = (h) => `${hourLabel(h)} – ${hourLabel((h + 1) % 24)}`;
+function hourLabel(h) { return `${(h + 11) % 12 + 1}${h < 12 ? 'am' : 'pm'}`; }
+const dayFmt = (iso) => iso ? new Date(`${iso}T00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+
+function Charts({ c, now }) {
   const [tab, setTab] = useState('daily');
   const views = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
+  const nowHour = now.getHours();
+  const nowLabel = c.hourly.find((h) => h.hour === nowHour)?.label;
+  const todayDay = now.getDate();
+  const avgName = c.hourlyDays ? `Average day (last 4 weeks, ${c.hourlyDays} day${c.hourlyDays === 1 ? '' : 's'} with sales)` : 'Average day (no earlier sales yet)';
   return (
-    <div className="card panel span-8">
+    <div className="card panel span-8 sales-card">
       <div className="panel-head">
         <h3>Sales</h3>
         <div className="seg">{Object.entries(views).map(([k, l]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
       </div>
       {tab === 'hourly' && <>
-        <div className="legend" style={{ marginBottom: 8 }}><span><i style={{ background: HONEY }} />Today</span><span><i style={{ background: PURPLE }} />Average day (last 4 weeks)</span></div>
-        <div className="chart-wrap"><ResponsiveContainer>
-          <BarChart data={c.hourly} barGap={2}>
+        <div className="legend" style={{ marginBottom: 8 }}>
+          <span><i style={{ background: HONEY }} />Today, by the hour the bill was made</span>
+          <span><i className="line-key" style={{ background: PURPLE }} />{avgName}</span>
+          {nowLabel && <span><i className="now-key" />Now ({now.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })})</span>}
+        </div>
+        <div className="chart-wrap tall"><ResponsiveContainer>
+          <ComposedChart data={c.hourly} margin={{ top: 18, right: 8 }}>
             <CartesianGrid vertical={false} stroke={GRID} />
-            <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} />
-            <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-            <Tooltip content={<Tip />} cursor={{ fill: '#fff3cf88' }} />
-            <Bar dataKey="today" name="Today" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={22} />
-            <Bar dataKey="average" name="Average day" fill={PURPLE} radius={[4, 4, 0, 0]} maxBarSize={22} />
-          </BarChart>
+            <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval={0} />
+            <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} allowDecimals={false} />
+            <Tooltip content={<Tip labelFmt={(l, p) => hourRange(p[0]?.payload?.hour ?? 0)} />} cursor={{ fill: '#fff3cf88' }} />
+            {nowLabel && <ReferenceLine x={nowLabel} stroke={CHOC} strokeDasharray="3 3" strokeWidth={1.5} label={{ value: 'now', position: 'top', fill: CHOC, fontSize: 11 }} />}
+            <Bar dataKey="today" name="Today" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={28} />
+            {c.hourlyDays > 0 && <Line dataKey="average" name="Average day" stroke={PURPLE} strokeWidth={2} dot={{ r: 3, fill: PURPLE }} activeDot={{ r: 5 }} />}
+          </ComposedChart>
         </ResponsiveContainer></div>
       </>}
       {tab === 'daily' && <>
         <div className="legend" style={{ marginBottom: 8 }}><span><i style={{ background: HONEY }} />Revenue per day</span><span><i className="dash-key" />Daily target (even pace)</span></div>
         <div className="chart-wrap"><ResponsiveContainer>
-          <ComposedChart data={c.daily}>
+          <ComposedChart data={c.daily} margin={{ top: 18, right: 8 }}>
             <CartesianGrid vertical={false} stroke={GRID} />
             <XAxis dataKey="day" tick={AXIS} axisLine={false} tickLine={false} interval={1} />
             <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-            <Tooltip content={<Tip labelFmt={(l, p) => p[0]?.payload?.date?.split('-').reverse().join('/')} />} cursor={{ fill: '#fff3cf88' }} />
+            <Tooltip content={<Tip labelFmt={(l, p) => dayFmt(p[0]?.payload?.date)} />} cursor={{ fill: '#fff3cf88' }} />
+            <ReferenceLine x={todayDay} stroke={CHOC} strokeDasharray="3 3" strokeWidth={1.5} label={{ value: 'today', position: 'top', fill: CHOC, fontSize: 11 }} />
             <Bar dataKey="revenue" name="Revenue" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={18} />
             <ReferenceLine y={c.daily[0]?.dailyTarget} stroke={CHOC} strokeDasharray="5 4" strokeWidth={2} ifOverflow="extendDomain" />
           </ComposedChart>
         </ResponsiveContainer></div>
         <div className="legend" style={{ margin: '14px 0 8px' }}><span><i style={{ background: HONEY }} />Running total this month</span><span><i className="dash-key" />Where you need to be</span></div>
         <div className="chart-wrap" style={{ height: 200 }}><ResponsiveContainer>
-          <ComposedChart data={c.daily}>
+          <ComposedChart data={c.daily} margin={{ top: 18, right: 8 }}>
             <CartesianGrid vertical={false} stroke={GRID} />
             <XAxis dataKey="day" tick={AXIS} axisLine={false} tickLine={false} interval={1} />
             <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-            <Tooltip content={<Tip labelFmt={(l, p) => p[0]?.payload?.date?.split('-').reverse().join('/')} />} />
+            <Tooltip content={<Tip labelFmt={(l, p) => dayFmt(p[0]?.payload?.date)} />} />
             <Area dataKey="cumulative" name="Running total" stroke={HONEY} fill={HONEY} fillOpacity={0.18} strokeWidth={2} connectNulls={false} />
             <Line dataKey="pace" name="Target pace" stroke={CHOC} strokeDasharray="5 4" strokeWidth={2} dot={false} />
           </ComposedChart>
         </ResponsiveContainer></div>
       </>}
-      {tab === 'weekly' && <div className="chart-wrap"><ResponsiveContainer>
+      {tab === 'weekly' && <div className="chart-wrap taller"><ResponsiveContainer>
         <BarChart data={c.weekly}>
           <CartesianGrid vertical={false} stroke={GRID} />
           <XAxis dataKey="week" tick={AXIS} axisLine={false} tickLine={false} />
           <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-          <Tooltip content={<Tip labelFmt={(l) => `Week of ${l}`} />} cursor={{ fill: '#fff3cf88' }} />
+          <Tooltip content={<Tip labelFmt={(l) => `Week from Mon ${l}`} />} cursor={{ fill: '#fff3cf88' }} />
           <Bar dataKey="revenue" name="Revenue" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={36} />
         </BarChart>
       </ResponsiveContainer></div>}
       {tab === 'monthly' && <>
         <div className="legend" style={{ marginBottom: 8 }}><span><i style={{ background: HONEY }} />Revenue</span><span><i className="dash-key" />Target</span></div>
-        <div className="chart-wrap"><ResponsiveContainer>
+        <div className="chart-wrap tall"><ResponsiveContainer>
           <ComposedChart data={c.monthly}>
             <CartesianGrid vertical={false} stroke={GRID} />
             <XAxis dataKey="month" tick={AXIS} axisLine={false} tickLine={false} />
@@ -171,14 +187,14 @@ function Charts({ c }) {
   );
 }
 
-function SplitBars({ rows, color, valueKey = 'value', fmt = inr }) {
+function SplitBars({ rows, color, valueKey = 'value', fmt = inr, empty = 'No sales yet.' }) {
   const max = Math.max(1, ...rows.map((r) => r[valueKey]));
-  if (!rows.length) return <div className="muted small">No sales yet.</div>;
+  if (!rows.length || rows.every((r) => !r[valueKey])) return <div className="muted small">{empty}</div>;
   return (
     <div className="split num">
       {rows.map((r, i) => (
         <div className="r" key={r.name || r.day}>
-          <span style={{ textTransform: 'capitalize' }}>{r.name || r.day}</span>
+          <span style={{ textTransform: 'capitalize' }}>{r.name || r.day}{r.note && <span className="muted small"> {r.note}</span>}</span>
           <div className="track"><div style={{ width: `${(r[valueKey] / max) * 100}%`, background: typeof color === 'function' ? color(r, i) : color }} /></div>
           <b style={{ textAlign: 'right' }}>{fmt(r[valueKey])}</b>
         </div>
@@ -201,7 +217,7 @@ function Items({ initial }) {
     <div className="f"><div className="k">{k}</div><div className="n">{i ? i.name : '—'}</div><div className="s num">{i ? s(i) : 'No sales yet'}</div></div>
   );
   return (
-    <div className="card panel span-7">
+    <div className="card panel span-7 fill-card">
       <div className="panel-head">
         <h3>What's selling</h3>
         <div className="seg">{[['today', 'Today'], ['week', '7 days'], ['month', 'This month'], ['all', 'All time']].map(([k, l]) =>
@@ -212,7 +228,7 @@ function Items({ initial }) {
         <F k="🔥 Most popular" i={data.mostPopular} s={(i) => `${i.qty} sold`} />
         <F k="❤️ Customer favourite" i={data.customerFavourite} s={(i) => `in ${i.orders} separate orders`} />
       </div>
-      <div className="scroll" style={{ maxHeight: 420 }}>
+      <div className="scroll grow-scroll" style={{ minHeight: 420 }}>
         <table className="tbl num">
           <thead><tr>
             <th>Item</th>
@@ -261,7 +277,7 @@ function Expenses({ month, onChange, notify }) {
   };
   const list = data ? [...data.recurring.map((e) => ({ ...e, rec: true })), ...data.oneOff] : [];
   return (
-    <div className="card panel span-5">
+    <div className="card panel span-5 fill-card">
       <div className="panel-head"><h3>Expenses this month</h3>{data && <b className="num">{inr(data.total)}</b>}</div>
       <div className="exp-form">
         <select value={category} onChange={(e) => setF({ ...f, category: e.target.value })}>
@@ -274,7 +290,7 @@ function Expenses({ month, onChange, notify }) {
         <button className="btn primary" onClick={add} disabled={!f.amount}>Add</button>
       </div>
       {data?.byCategory?.length > 0 && <div style={{ marginBottom: 12 }}><SplitBars rows={data.byCategory.map((c) => ({ name: c.category, value: c.amount }))} color="#8a5a0b" /></div>}
-      <div className="scroll" style={{ maxHeight: 240 }}>
+      <div className="scroll grow-scroll" style={{ minHeight: 160 }}>
         <table className="tbl num">
           <tbody>
             {list.map((e) => (
@@ -293,10 +309,132 @@ function Expenses({ month, onChange, notify }) {
   );
 }
 
+// ---------- Sales calendar ----------
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const shiftMonth = (m, by) => {
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(y, mo - 1 + by, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const monthTitle = (m) => new Date(`${m}-01T00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+
+function dayTone(d, dailyTarget) {
+  if (d.future) return 'future';
+  if (!d.orders) return 'none';
+  if (dailyTarget > 0 && d.revenue >= dailyTarget) return 'hit';
+  if (dailyTarget > 0 && d.revenue >= dailyTarget / 2) return 'half';
+  return 'some';
+}
+
+function DayDetail({ date }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    setD(null);
+    api.get(`/api/day-end?date=${date}`).then(setD).catch(() => setD(false));
+  }, [date]);
+  const open = () => { location.hash = date === today() ? 'dayend' : `dayend?date=${date}`; };
+  return (
+    <div className="cal-detail">
+      <div className="cal-detail-head">
+        <h3>{dayFmt(date)}{date === today() && <span className="pill" style={{ marginLeft: 8 }}>today</span>}</h3>
+      </div>
+      {d === null && <div className="muted small">Loading…</div>}
+      {d === false && <div className="err">Could not load this day.</div>}
+      {d && <>
+        <div className="cal-stats num">
+          <div><div className="k">Sales</div><div className="v">{inr(d.revenue)}</div></div>
+          <div><div className="k">Bills</div><div className="v">{d.orders}</div></div>
+          <div><div className="k">Avg bill</div><div className="v">{inr(d.aov)}</div></div>
+        </div>
+        {d.payments.length > 0 && (
+          <div className="small muted" style={{ marginBottom: 10 }}>
+            {d.payments.map((p) => `${p.method.toUpperCase()} ${inr(p.amount)}`).join(' · ')}
+            {d.cancelled.n > 0 && ` · ${d.cancelled.n} cancelled (${inr(d.cancelled.amount)})`}
+          </div>
+        )}
+        {d.items.length ? (
+          <table className="tbl num small-tbl">
+            <tbody>{d.items.slice(0, 6).map((i) => (
+              <tr key={i.name}><td>{i.name}</td><td className="r">×{i.qty}</td><td className="r">{inr(i.revenue)}</td></tr>
+            ))}</tbody>
+          </table>
+        ) : <div className="muted small">No sales on this day{d.cancelled.n > 0 ? ` (${d.cancelled.n} cancelled bill${d.cancelled.n === 1 ? '' : 's'})` : ''}.</div>}
+        {d.items.length > 6 && <div className="muted small" style={{ marginTop: 6 }}>+ {d.items.length - 6} more items</div>}
+      </>}
+      <button className="btn sm" style={{ marginTop: 'auto' }} onClick={open}>Open full Day End report →</button>
+    </div>
+  );
+}
+
+function SalesCalendar({ month: current }) {
+  const [month, setMonth] = useState(current);
+  const [cal, setCal] = useState(null);
+  const [err, setErr] = useState('');
+  const [picked, setPicked] = useState(today());
+  useEffect(() => { setMonth(current); }, [current]);
+  useEffect(() => {
+    api.get(`/api/calendar?month=${month}`).then((c) => { setCal(c); setErr(''); }).catch((e) => setErr(e.message));
+  }, [month]);
+  useEffect(() => {
+    // Keep a selected day inside the month on screen: today if it is this month, else the best day.
+    if (!cal || cal.month !== month || picked.startsWith(month)) return;
+    setPicked(cal.today.startsWith(month) ? cal.today : cal.bestDay || `${month}-01`);
+  }, [cal, month]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const lead = cal ? cal.days[0].weekday : 0;
+  const atCurrent = month >= current;
+  return (
+    <div className="card panel span-12">
+      <div className="panel-head">
+        <h3>Sales calendar</h3>
+        <div className="row">
+          <button className="btn sm" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month">‹</button>
+          <b className="cal-month">{monthTitle(month)}</b>
+          <button className="btn sm" disabled={atCurrent} onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month">›</button>
+          {!atCurrent && <button className="btn ghost sm" onClick={() => { setMonth(current); setPicked(today()); }}>This month</button>}
+        </div>
+      </div>
+      {err && <div className="err">{err}</div>}
+      {cal && cal.month === month && (
+        <div className="cal-layout">
+          <div>
+            <div className="cal-summary num small">
+              <span><b>{inr(cal.revenue)}</b> from {cal.orders} bill{cal.orders === 1 ? '' : 's'}</span>
+              <span>{cal.tradingDays} day{cal.tradingDays === 1 ? '' : 's'} with sales · avg <b>{inr(cal.avgDaily)}</b>/day</span>
+              <span>Daily goal at an even pace <b>{inr(cal.dailyTarget)}</b></span>
+            </div>
+            <div className="cal-grid" role="grid" aria-label={`Sales in ${monthTitle(month)}`}>
+              {WEEKDAYS.map((w) => <div key={w} className="cal-wd">{w}</div>)}
+              {Array.from({ length: lead }, (_, i) => <div key={`pad${i}`} />)}
+              {cal.days.map((d) => (
+                <button key={d.date} type="button" disabled={d.future}
+                  className={`cal-day ${dayTone(d, cal.dailyTarget)}${d.today ? ' today' : ''}${picked === d.date ? ' picked' : ''}`}
+                  onClick={() => setPicked(d.date)}
+                  title={d.future ? '' : `${dayFmt(d.date)}: ${inr(d.revenue)} from ${d.orders} bill${d.orders === 1 ? '' : 's'}`}>
+                  <span className="n">{d.day}</span>
+                  {!d.future && <span className="rv num">{d.orders ? inrShort(d.revenue) : '—'}</span>}
+                  {!d.future && d.orders > 0 && <span className="oc num">{d.orders} bill{d.orders === 1 ? '' : 's'}</span>}
+                </button>
+              ))}
+            </div>
+            <div className="legend cal-legend">
+              <span><i className="cal-key hit" />Met the daily goal</span>
+              <span><i className="cal-key half" />Half or more</span>
+              <span><i className="cal-key some" />Under half</span>
+              <span><i className="cal-key none" />No sales</span>
+            </div>
+          </div>
+          {picked.startsWith(month) && <DayDetail date={picked} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ notify, onChange }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
-  const load = useCallback(() => api.get('/api/dashboard?period=month').then((x) => { setD(x); setErr(''); }).catch((e) => setErr(e.message)), []);
+  const load = useCallback(() => api.get('/api/dashboard?period=month').then((x) => { syncShopClock(x.now); setD(x); setErr(''); }).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load]);
   const changed = () => { load(); onChange(); };
   if (err) return <div className="page err">{err}</div>;
@@ -311,7 +449,7 @@ export default function Dashboard({ notify, onChange }) {
       </div>
       <div className="dash">
         <TargetCard t={d.target} onSaved={changed} notify={notify} />
-        <Charts c={d.charts} />
+        <Charts c={d.charts} now={new Date(d.now)} />
         <div className="card panel span-4 insights-card">
           <h3>Insights</h3>
           <div className="insights">
@@ -320,6 +458,7 @@ export default function Dashboard({ notify, onChange }) {
             ))}
           </div>
         </div>
+        <SalesCalendar month={d.target.month} />
         <Items initial={d.items} />
         <Expenses month={thisMonth()} onChange={changed} notify={notify} />
         <div className="card panel span-4">
@@ -328,7 +467,9 @@ export default function Dashboard({ notify, onChange }) {
         </div>
         <div className="card panel span-4">
           <h3>Average sales by weekday · last 8 weeks</h3>
-          <SplitBars rows={d.charts.weekday.map((w) => ({ name: w.day, value: w.average }))} color={HONEY} />
+          <SplitBars rows={d.charts.weekday.map((w) => ({ name: w.day, value: w.average, note: w.days ? `×${w.days}` : '' }))} color={HONEY}
+            empty="No sales before today in the last 8 weeks yet." />
+          <p className="small muted card-foot">Average of the days that had sales (×N is how many such days), today not included.</p>
         </div>
         <div className="card panel span-4">
           <h3>Payment methods · this month</h3>

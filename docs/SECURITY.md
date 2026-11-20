@@ -45,7 +45,7 @@ exposes data needs the owner's PIN.
 | --- | --- |
 | `GET /api/menu` | The billing screen needs it. |
 | `POST /api/orders`, `GET /api/orders`, `GET /api/orders/{id}` | Billing and reprinting at the counter. Prices always come from the server's menu, so a client can't set its own. |
-| `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/day-end`, `GET /api/expenses` | Reading the numbers is part of running the shop. |
+| `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/calendar`, `GET /api/day-end`, `GET /api/expenses` | Reading the numbers is part of running the shop. |
 | `GET /api/config` | The screens load the theme and billing options from it. Secret settings are left out. |
 | `POST /api/admin/login` | Throttled (see below). |
 | `GET /api/health` | Docker's health check. |
@@ -100,6 +100,12 @@ A 4-digit PIN has only 10,000 values, so guessing must be slow:
 
 At these rates, trying all 10,000 four-digit PINs takes days instead of minutes. A 6-digit PIN
 makes it far longer still.
+
+**PIN length stays on the device.** The sign-in pad shows as many dots as the PIN has and signs in
+on the last digit, but only on a device that has signed in (or changed the PIN) before: it keeps the
+length in that browser's `localStorage` (`wb-pin-length`), never the PIN. The server never says how
+long the PIN is, so a guesser on a new device still has to try every length from 4 to 8 digits. A
+wrong PIN clears the remembered length, so a PIN changed on another tablet to a new length still works.
 
 ### Input limits (`schemas.py`, `modules/builtin.py`)
 

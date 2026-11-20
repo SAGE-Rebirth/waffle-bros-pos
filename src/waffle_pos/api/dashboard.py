@@ -6,7 +6,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Query
 
 from waffle_pos import clock
-from waffle_pos.api.deps import DB, INVALID, errors
+from waffle_pos.api.deps import DB, INVALID, bad_request, errors
+from waffle_pos.api.finance import BAD_MONTH, MONTH_RE
 from waffle_pos.schemas import Period
 from waffle_pos.services import analytics, insights
 
@@ -46,9 +47,12 @@ def dashboard(db: DB, period: PeriodQuery = "month") -> dict[str, Any]:
       `paymentSplit` and `weekday` (8-week average per weekday).
     - `insights`: plain-English tips, each `{tone: good|warn|info, title, text}`.
     - `items`: the same object as `GET /api/items/stats` for `period`.
+    - `now`: the shop-local time the numbers were worked out for (`YYYY-MM-DDTHH:MM:SS`), so the
+      screens show the shop's clock even if a tablet's own clock or time zone is off.
     """
     now = clock.now()
     return {
+        "now": now.isoformat(),
         "target": analytics.target_summary(db, now),
         "charts": analytics.charts(db, now),
         "insights": insights.insights(db, now),
@@ -66,6 +70,30 @@ def dashboard(db: DB, period: PeriodQuery = "month") -> dict[str, Any]:
 )
 def item_stats(db: DB, period: PeriodQuery = "month") -> dict[str, Any]:
     return analytics.item_stats(db, period, clock.now())
+
+
+@router.get(
+    "/calendar",
+    summary="A month of daily sales, for the calendar",
+    responses=errors({400: BAD_MONTH, 422: INVALID}),
+)
+def calendar(
+    db: DB,
+    month: Annotated[
+        str | None, Query(description="The month, `YYYY-MM`. Defaults to the current month.")
+    ] = None,
+) -> dict[str, Any]:
+    """Every day of one month with its paid sales, for the Dashboard calendar (see docs/API.md).
+    Keys: `month`, `today`, `target` and `dailyTarget` (target / days in month), `revenue`,
+    `orders`, `tradingDays` (days with a sale), `avgDaily` (per trading day), `bestDay` (date or
+    null), `firstSale` (date of the shop's first paid bill or null) and `days`: one entry per day
+    with `date`, `day`, `weekday` (0 = Monday), `revenue`, `orders`, `cancelled` (all null for days
+    after today), `future` and `today`.
+    """
+    if month is not None and not MONTH_RE.match(month):
+        raise bad_request("Enter a valid month (YYYY-MM)")
+    today = clock.today()
+    return analytics.calendar(db, month or clock.month_key(today), today)
 
 
 @router.get("/day-end", summary="Day-end closing sheet", responses=errors({422: INVALID}))

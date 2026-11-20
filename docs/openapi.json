@@ -1350,6 +1350,70 @@
         ]
       }
     },
+    "/api/calendar": {
+      "get": {
+        "description": "Every day of one month with its paid sales, for the Dashboard calendar (see docs/API.md).\nKeys: `month`, `today`, `target` and `dailyTarget` (target / days in month), `revenue`,\n`orders`, `tradingDays` (days with a sale), `avgDaily` (per trading day), `bestDay` (date or\nnull), `firstSale` (date of the shop's first paid bill or null) and `days`: one entry per day\nwith `date`, `day`, `weekday` (0 = Monday), `revenue`, `orders`, `cancelled` (all null for days\nafter today), `future` and `today`.",
+        "operationId": "calendar_api_calendar_get",
+        "parameters": [
+          {
+            "description": "The month, `YYYY-MM`. Defaults to the current month.",
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The month, `YYYY-MM`. Defaults to the current month.",
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Calendar Api Calendar Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The month is not `YYYY-MM` (\"Enter a valid month (YYYY-MM)\")."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Validation failed: a field is missing, the wrong type or out of range (`field: reason`)."
+          }
+        },
+        "summary": "A month of daily sales, for the calendar",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/api/categories": {
       "post": {
         "description": "Create a category at the end of the list. Returns the new category's `id`.",
@@ -1756,7 +1820,7 @@
     },
     "/api/dashboard": {
       "get": {
-        "description": "One call for the whole Dashboard, computed for the shop-local *now*. Only paid bills count;\nall money is rupees rounded to 2 dp. Keys (full field list and formulas in docs/API.md):\n\n- `target`: this month's target summary: `month`, `target`, `revenue`, `orders`,\n  `todayRevenue`, `progressPct`, `expectedPct`, `remaining`, `todayTarget`,\n  `requiredDailyFromTomorrow`, `avgDaily`, `projected`, `aov`, `netProfit`, break-even figures\n  and an `expenses` breakdown.\n- `charts`: arrays `hourly` (today vs 28-day average), `daily` (this month, with even-pace line),\n  `weekly` (12 weeks), `monthly` (12 months with target and expenses), `categorySplit`,\n  `paymentSplit` and `weekday` (8-week average per weekday).\n- `insights`: plain-English tips, each `{tone: good|warn|info, title, text}`.\n- `items`: the same object as `GET /api/items/stats` for `period`.",
+        "description": "One call for the whole Dashboard, computed for the shop-local *now*. Only paid bills count;\nall money is rupees rounded to 2 dp. Keys (full field list and formulas in docs/API.md):\n\n- `target`: this month's target summary: `month`, `target`, `revenue`, `orders`,\n  `todayRevenue`, `progressPct`, `expectedPct`, `remaining`, `todayTarget`,\n  `requiredDailyFromTomorrow`, `avgDaily`, `projected`, `aov`, `netProfit`, break-even figures\n  and an `expenses` breakdown.\n- `charts`: arrays `hourly` (today vs 28-day average), `daily` (this month, with even-pace line),\n  `weekly` (12 weeks), `monthly` (12 months with target and expenses), `categorySplit`,\n  `paymentSplit` and `weekday` (8-week average per weekday).\n- `insights`: plain-English tips, each `{tone: good|warn|info, title, text}`.\n- `items`: the same object as `GET /api/items/stats` for `period`.\n- `now`: the shop-local time the numbers were worked out for (`YYYY-MM-DDTHH:MM:SS`), so the\n  screens show the shop's clock even if a tablet's own clock or time zone is off.",
         "operationId": "dashboard_api_dashboard_get",
         "parameters": [
           {
