@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ComposedChart, Line, Area, ReferenceLine,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ComposedChart, Line, Area, ReferenceLine, Cell, LabelList,
 } from 'recharts';
 import { api, inr, inrShort, pinApi, today, thisMonth, syncShopClock, SERIES } from '../api.js';
 import { useConfig } from '../config.jsx';
@@ -10,6 +10,8 @@ import { CARDS, cardTitle, defaultLayout, isDefault, loadLayout, saveLayout, set
 const HONEY = SERIES[0];
 const PURPLE = SERIES[1];
 const CHOC = '#4A2C1A';
+const HONEY_SOFT = '#e8c78a'; // the week or month still in progress
+const TARGET_FILL = '#f6ead4';
 const GRID = '#f1e8d8';
 const AXIS = { fontSize: 12, fill: '#9a8879' };
 const ICON = { good: '✅', warn: '⚠️', info: '💡' };
@@ -163,27 +165,50 @@ function Charts({ c, now }) {
           </ComposedChart>
         </ResponsiveContainer></div>
       </>}
-      {tab === 'weekly' && <div className="chart-wrap taller"><ResponsiveContainer>
-        <BarChart data={c.weekly}>
-          <CartesianGrid vertical={false} stroke={GRID} />
-          <XAxis dataKey="week" tick={AXIS} axisLine={false} tickLine={false} />
-          <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-          <Tooltip content={<Tip labelFmt={(l) => `Week from Mon ${l}`} />} cursor={{ fill: '#fff3cf88' }} />
-          <Bar dataKey="revenue" name="Revenue" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={36} />
-        </BarChart>
-      </ResponsiveContainer></div>}
-      {tab === 'monthly' && <>
-        <div className="legend" style={{ marginBottom: 8 }}><span><i style={{ background: HONEY }} />Revenue</span><span><i className="dash-key" />Target</span></div>
+      {tab === 'weekly' && <>
+        <div className="legend" style={{ marginBottom: 8 }}>
+          <span><i style={{ background: HONEY }} />Revenue per week (Monday to Sunday)</span>
+          <span><i style={{ background: HONEY_SOFT }} />This week so far</span>
+        </div>
         <div className="chart-wrap tall"><ResponsiveContainer>
-          <ComposedChart data={c.monthly}>
+          <BarChart data={c.weekly} margin={{ top: 22, right: 8 }}>
             <CartesianGrid vertical={false} stroke={GRID} />
-            <XAxis dataKey="month" tick={AXIS} axisLine={false} tickLine={false} />
+            <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={8} />
             <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-            <Tooltip content={<Tip />} cursor={{ fill: '#fff3cf88' }} />
-            <Bar dataKey="revenue" name="Revenue" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={36} />
-            <Line dataKey="target" name="Target" stroke={CHOC} strokeDasharray="5 4" strokeWidth={2} dot={{ r: 4, fill: CHOC, stroke: '#fff', strokeWidth: 2 }} />
-          </ComposedChart>
+            <Tooltip content={<Tip labelFmt={(l, p) => `${l}${p[0]?.payload?.current ? ' (this week so far)' : ''} · ${p[0]?.payload?.orders ?? 0} bills`} />} cursor={{ fill: '#fff3cf88' }} />
+            <Bar dataKey="revenue" name="Revenue" radius={[4, 4, 0, 0]} maxBarSize={56}>
+              {c.weekly.map((w) => <Cell key={w.start} fill={w.current ? HONEY_SOFT : HONEY} />)}
+              <LabelList dataKey="revenue" position="top" formatter={inrShort} style={{ fontSize: 11, fill: CHOC }} />
+            </Bar>
+          </BarChart>
         </ResponsiveContainer></div>
+        {c.weekly.length < 3 && <p className="small muted card-foot">Weeks start from your first bill, so more bars appear as the shop keeps trading.</p>}
+      </>}
+      {tab === 'monthly' && <>
+        <div className="legend" style={{ marginBottom: 8 }}>
+          <span><i style={{ background: HONEY }} />Revenue</span>
+          <span><i style={{ background: TARGET_FILL, border: `1px dashed ${CHOC}` }} />Still to go to reach the target</span>
+        </div>
+        <div className="chart-wrap tall"><ResponsiveContainer>
+          <BarChart data={c.monthly.map((m) => ({
+            ...m,
+            pct: m.target ? Math.round((m.revenue / m.target) * 100) : null,
+            rest: Math.max(0, (m.target || 0) - m.revenue), // the part of the target still to earn
+          }))} margin={{ top: 26, right: 8 }}>
+            <CartesianGrid vertical={false} stroke={GRID} />
+            <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={8} />
+            <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
+            <Tooltip content={<Tip labelFmt={(l, p) => {
+              const m = p[0]?.payload;
+              return `${l}${m?.current ? ' (so far)' : ''}${m?.pct != null ? ` · ${m.pct}% of ${inr(m.target)}` : ''}`;
+            }} />} cursor={{ fill: '#fff3cf88' }} />
+            <Bar dataKey="revenue" name="Revenue" stackId="m" fill={HONEY} maxBarSize={72} />
+            <Bar dataKey="rest" name="Still to go" stackId="m" fill={TARGET_FILL} stroke={CHOC} strokeDasharray="4 3" radius={[4, 4, 0, 0]} maxBarSize={72}>
+              <LabelList dataKey="pct" position="top" formatter={(v) => (v == null ? '' : `${v}%`)} style={{ fontSize: 11, fill: CHOC, fontWeight: 700 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer></div>
+        {c.monthly.length < 3 && <p className="small muted card-foot">Months start from your first bill. The full bar is the month's target; the % is how much of it was reached.</p>}
       </>}
     </div>
   );
@@ -205,26 +230,52 @@ function SplitBars({ rows, color, valueKey = 'value', fmt = inr, empty = 'No sal
   );
 }
 
+// "1 – 20 Nov" for the dates an item-stats period covers (`to` is exclusive).
+const shortDate = (iso) => new Date(`${iso}T00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+function rangeText({ from, to }) {
+  if (!from || !to) return '';
+  if (from === '0000-00-00') return 'All time';
+  const last = new Date(`${to}T00:00`);
+  last.setDate(last.getDate() - 1);
+  const end = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
+  return from === end ? shortDate(from) : `${shortDate(from)} – ${shortDate(end)}`;
+}
+
 function Items({ initial }) {
   const [period, setPeriod] = useState(initial.period);
   const [data, setData] = useState(initial);
   const [sort, setSort] = useState('revenue');
+  const [err, setErr] = useState('');
   useEffect(() => {
+    // Ignore a reply that arrives after the period was changed again, so the table never shows
+    // one period's numbers under another period's tab.
+    let live = true;
+    setErr('');
     if (period === initial.period) setData(initial);
-    else api.get(`/api/items/stats?period=${period}`).then(setData);
+    else {
+      api.get(`/api/items/stats?period=${period}`)
+        .then((x) => { if (live) setData(x); })
+        .catch((e) => { if (live) setErr(e.message); });
+    }
+    return () => { live = false; };
   }, [period, initial]);
+  const loading = data.period !== period && !err;
   const rows = data.items.filter((i) => i.qty > 0 || i.active).sort((a, b) => b[sort] - a[sort]);
   const max = Math.max(1, ...rows.map((r) => r[sort]));
   const F = ({ k, i, s }) => (
     <div className="f"><div className="k">{k}</div><div className="n">{i ? i.name : '—'}</div><div className="s num">{i ? s(i) : 'No sales yet'}</div></div>
   );
   return (
-    <div className="card panel fill-card items-card">
+    <div className={`card panel fill-card items-card${loading ? ' loading' : ''}`}>
       <div className="panel-head">
-        <h3>What's selling</h3>
+        <div>
+          <h3>What's selling</h3>
+          <div className="small muted num">{rangeText(data)}{data.bills != null && ` · ${data.bills} bill${data.bills === 1 ? '' : 's'} · ${inr(data.revenue)}`}</div>
+        </div>
         <div className="seg">{[['today', 'Today'], ['week', '7 days'], ['month', 'This month'], ['all', 'All time']].map(([k, l]) =>
           <button key={k} className={period === k ? 'active' : ''} onClick={() => setPeriod(k)}>{l}</button>)}</div>
       </div>
+      {err && <div className="err small">{err}</div>}
       <div className="fav">
         <F k="🏆 Best seller" i={data.bestSeller} s={(i) => `${inr(i.revenue)} earned`} />
         <F k="🔥 Most popular" i={data.mostPopular} s={(i) => `${i.qty} sold`} />
@@ -237,8 +288,8 @@ function Items({ initial }) {
             <th className="r" style={{ cursor: 'pointer' }} onClick={() => setSort('qty')}>Sold{sort === 'qty' && ' ▾'}</th>
             <th className="r" style={{ cursor: 'pointer' }} onClick={() => setSort('orders')}>Orders{sort === 'orders' && ' ▾'}</th>
             <th className="r" style={{ cursor: 'pointer' }} onClick={() => setSort('revenue')}>Revenue{sort === 'revenue' && ' ▾'}</th>
-            <th style={{ width: 90 }} />
-            <th className="r">Margin</th>
+            <th className="barc" style={{ width: 90 }} />
+            <th className="r marginc">Margin</th>
           </tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -247,8 +298,8 @@ function Items({ initial }) {
                 <td className="r">{r.qty}</td>
                 <td className="r">{r.orders}</td>
                 <td className="r">{inr(r.revenue)}</td>
-                <td><div className="bar-inline"><div style={{ width: `${(r[sort] / max) * 100}%` }} /></div></td>
-                <td className="r">{r.margin == null ? <span className="muted">—</span> : <span className={`pill ${r.margin >= 60 ? 'good' : r.margin >= 50 ? '' : 'warn'}`}>{Math.round(r.margin)}%</span>}</td>
+                <td className="barc"><div className="bar-inline"><div style={{ width: `${(r[sort] / max) * 100}%` }} /></div></td>
+                <td className="r marginc">{r.margin == null ? <span className="muted">—</span> : <span className={`pill ${r.margin >= 60 ? 'good' : r.margin >= 50 ? '' : 'warn'}`}>{Math.round(r.margin)}%</span>}</td>
               </tr>
             ))}
           </tbody>

@@ -318,12 +318,16 @@ a single "No sales yet" tip. `_menu` uses the `targets` module's `slow_mover_pct
 
 Every Dashboard card can be moved, resized and hidden. **✥ Customise** turns on edit mode: each
 card gets a toolbar with a drag handle (⠿), ◀ ▶ to move it, − + for its width (25% to full, in
-twelfths of the grid) and Hide. **↺ Reset layout** goes back to the default.
+twelfths of the grid) and Hide. Its right edge, bottom edge and bottom-right corner can be dragged
+(mouse or touch) to resize it: the width snaps to the 12-column grid, the height to 10 px steps
+(160 to 2000 px). A card with a set height is exactly that tall and scrolls inside; **↕ Auto**, a
+double-click on the bottom edge, or Delete on the focused edge goes back to fitting the content.
+The edges are also focusable sliders (arrow keys). **↺ Reset layout** goes back to the default.
 
 - `frontend/src/layout.js` holds the card list (`CARDS`: id, title, default width), the layout
   maths (`sanitize`, `moveCard`, `dropCard`, `resizeCard`, `setHidden`) and storage. It has no
   React or DOM code so `npm test` (Node's built-in runner, `src/**/*.test.js`) covers it.
-- The layout is `{order, width, hidden}` in `localStorage` under `wb-dashboard-layout-v1`, so
+- The layout is `{order, width, height, hidden}` in `localStorage` under `wb-dashboard-layout-v1`, so
   each device (counter tablet, owner's laptop) keeps its own. Nothing is stored on the server.
   Saving the default layout removes the key. Unreadable or blocked storage gives the default.
 - `components/DashGrid.jsx` uses `@dnd-kit/core` + `@dnd-kit/sortable`: a pointer sensor (mouse,
@@ -331,7 +335,12 @@ twelfths of the grid) and Hide. **↺ Reset layout** goes back to the default.
   the handle starts a drag, so scrolling and tapping inside cards work as usual. Cards do not
   slide while you drag, because their sizes differ so much; the card under the pointer shows a
   bar on the side where the dragged card will land, and a small chip follows the pointer.
-- Below 1100 px wide every card is full width (as before), so the width buttons are hidden there.
+- Below 1100 px wide every card is full width (as before), so the width buttons and the right-edge
+  handle are hidden there; heights can still be changed.
+- Each card cell is a CSS container (`container-name: card`), so the content inside a card (target
+  ring and stats, the three favourites, calendar and day detail, expense form, item table columns,
+  calendar cell text) rearranges by the card's own width with `@container card (...)` rules, not
+  the window's. Use `@container card` for any new card layout rule.
 
 To add a card: add it to `CARDS` in `layout.js` (a saved layout from before gets it slotted in
 after its default neighbour) and to the `cards` map in `Dashboard.jsx`. Card ids are stored on
