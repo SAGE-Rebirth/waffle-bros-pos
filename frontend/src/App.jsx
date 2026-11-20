@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, inr } from './api.js';
+import { api, inr, getShopTimeZone } from './api.js';
 import Billing from './pages/Billing.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import DayEnd from './pages/DayEnd.jsx';
@@ -69,7 +69,7 @@ export default function App() {
             <div className="bar"><div style={{ width: `${pct}%` }} /></div>
           </div>
         )}
-        <div className="clock">{now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} · {now.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</div>
+        <div className="clock">{now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: getShopTimeZone() })} · {now.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: getShopTimeZone() })}</div>
       </header>
       <main>
         {page === 'billing' && <Billing onOrder={refresh} notify={notify} goAdmin={() => setPage('admin')} />}

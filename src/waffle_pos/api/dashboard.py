@@ -37,6 +37,7 @@ def dashboard(db: DB, period: PeriodQuery = "month") -> dict[str, Any]:
     """One call for the whole Dashboard, computed for the shop-local *now*. Only paid bills count;
     all money is rupees rounded to 2 dp. Keys (full field list and formulas in docs/API.md):
 
+    - `now`, `today`: the shop-local time and date the numbers were computed for.
     - `target`: this month's target summary: `month`, `target`, `revenue`, `orders`,
       `todayRevenue`, `progressPct`, `expectedPct`, `remaining`, `todayTarget`,
       `requiredDailyFromTomorrow`, `avgDaily`, `projected`, `aov`, `netProfit`, break-even figures
@@ -49,6 +50,8 @@ def dashboard(db: DB, period: PeriodQuery = "month") -> dict[str, Any]:
     """
     now = clock.now()
     return {
+        "now": now.isoformat(),
+        "today": now.date().isoformat(),
         "target": analytics.target_summary(db, now),
         "charts": analytics.charts(db, now),
         "insights": insights.insights(db, now),
@@ -66,6 +69,24 @@ def dashboard(db: DB, period: PeriodQuery = "month") -> dict[str, Any]:
 )
 def item_stats(db: DB, period: PeriodQuery = "month") -> dict[str, Any]:
     return analytics.item_stats(db, period, clock.now())
+
+
+@router.get("/calendar", summary="Sales calendar for one month", responses=errors({422: INVALID}))
+def calendar(
+    db: DB,
+    month: Annotated[
+        str | None,
+        Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="`YYYY-MM`. Defaults to this month."),
+    ] = None,
+) -> dict[str, Any]:
+    """Paid sales for every shop-local day of a month, for the Day End calendar. Keys: `month`,
+    `today` (shop-local date), `target` and `dailyTarget` (even pace for that month), `revenue` and
+    `orders` (month totals, paid bills), `tradingDays` (days with a paid bill), `bestDay` (date or
+    null) and `days`: one entry per day with `date`, `day`, `weekday`, `revenue`, `orders`,
+    `cancelled` (bills cancelled that day), `today` and `future` (figures are null for future days).
+    """
+    today = clock.today()
+    return analytics.calendar(db, month or clock.month_key(today), today)
 
 
 @router.get("/day-end", summary="Day-end closing sheet", responses=errors({422: INVALID}))

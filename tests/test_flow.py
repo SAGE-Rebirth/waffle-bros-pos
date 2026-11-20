@@ -633,7 +633,7 @@ def test_trading_day(client: TestClient) -> None:
 
     # --- Dashboard: target progress (fresh shop: nothing before today) ---
     dash = ok(client.get("/api/dashboard"))
-    assert set(dash) == {"target", "charts", "insights", "items"}
+    assert set(dash) == {"now", "today", "target", "charts", "insights", "items"}
     t = dash["target"]
     today = clock.today()
     dim = clock.days_in_month(today)

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api } from './api.js';
+import { api, setShopTimeZone } from './api.js';
 
 // Used until /api/config answers, and kept if it never does (older backend, offline start-up).
 // They match the backend's module defaults and the POS's behaviour before modules existed.
@@ -85,6 +85,7 @@ export function ConfigProvider({ children }) {
   const reload = useCallback(async () => {
     try {
       const c = await api.get('/api/config');
+      if (c.timezone) setShopTimeZone(c.timezone);
       setState({ modules: merge(c.modules), version: c.version ?? null, default_pin: !!c.default_pin, loaded: true, error: null });
     } catch (e) {
       // Keep whatever we had (defaults on first load) so billing still works.

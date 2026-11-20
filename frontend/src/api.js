@@ -131,10 +131,15 @@ export const inrShort = (n) => {
   if (n >= 1e3) return '₹' + (n / 1e3).toFixed(n % 1e3 === 0 ? 0 : 1) + 'k';
   return '₹' + Math.round(n);
 };
-export const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// The shop's time zone (from GET /api/config). Dates and times on screen use it, not the tablet's
+// own zone, so a tablet set to UTC still shows the same "today" as the reports.
+let shopTimeZone = 'Asia/Kolkata';
+export const setShopTimeZone = (tz) => {
+  try { new Intl.DateTimeFormat('en-IN', { timeZone: tz }); shopTimeZone = tz; } catch { /* unknown zone: keep */ }
 };
+export const getShopTimeZone = () => shopTimeZone;
+// YYYY-MM-DD in the shop's time zone ('en-CA' formats dates as ISO).
+export const today = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: shopTimeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 export const thisMonth = () => today().slice(0, 7);
 
 // Category colours (validated for colour-blind separation) and item placeholders.

@@ -20,7 +20,7 @@ change things need an admin token in `$T`: see [Admin & config](#admin--config).
 - [Conventions](#conventions)
 - [Menu](#menu): `GET /api/menu`, `POST /api/categories`, `PUT /api/categories/{id}`, `DELETE /api/categories/{id}`, `POST /api/categories/reorder`, `POST /api/items`, `PUT /api/items/{id}`, `DELETE /api/items/{id}`, `POST /api/items/reorder`
 - [Orders](#orders): `POST /api/orders`, `GET /api/orders`, `GET /api/orders/{id}`, `POST /api/orders/{id}/cancel`
-- [Dashboard](#dashboard): `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/day-end`
+- [Dashboard](#dashboard): `GET /api/dashboard`, `GET /api/items/stats`, `GET /api/calendar`, `GET /api/day-end`
 - [Finance](#finance): `PUT /api/targets/{month}`, `GET /api/expenses`, `POST /api/expenses`, `DELETE /api/expenses/{id}`
 - [Admin & config](#admin--config): `GET /api/config`, `POST /api/admin/login`, `POST /api/admin/pin`, `GET /api/admin/modules`, `PUT /api/admin/modules/{key}`, `GET /api/admin/google-sheet/script`
 - [System](#system): `GET /api/health`, `POST /api/sync`, `GET /api/backup`, `POST /api/integrations/whatsapp`
@@ -360,8 +360,14 @@ category revenue is line value (`price x qty`), before bill discounts and GST; o
 curl http://localhost:4000/api/dashboard
 ```
 
+Every date and hour is shop-local (`WB_TIMEZONE`, default Asia/Kolkata), whatever the server's
+own clock zone is: a bill at 00:30 IST counts for that IST day and the 12am bar. `now` and `today`
+say which shop-local moment the numbers were computed for.
+
 ```json
 {
+  "now":      "2026-11-20T12:06:00",
+  "today":    "2026-11-20",
   "target":   { ... },
   "charts":   { "hourly": [...], "daily": [...], "weekly": [...], "monthly": [...],
                 "categorySplit": [...], "paymentSplit": [...], "weekday": [...] },
@@ -539,6 +545,39 @@ curl 'http://localhost:4000/api/items/stats?period=month'
   "topByRevenue": [...],
   "topByQty": [...],
   "slowMovers": [...]
+}
+```
+
+### `GET /api/calendar?month=YYYY-MM`: sales calendar for one month
+
+Paid sales for every shop-local day of a month (default this month), for the calendar on the Day End
+page. Days after today have `future: true` and `null` figures.
+
+| Key | Meaning |
+| --- | --- |
+| `month`, `today` | The month asked for, and the shop-local date today |
+| `target`, `dailyTarget` | That month's target and the even daily pace (`target / days in month`) |
+| `revenue`, `orders` | Month totals, paid bills |
+| `tradingDays` | Days with at least one paid bill |
+| `bestDay` | Date with the most revenue, or `null` |
+| `days` | One per day: `date`, `day`, `weekday` (`Mon`...), `revenue`, `orders`, `cancelled` (bills cancelled that day), `today`, `future` |
+
+A bad `month` (not `YYYY-MM`) answers 422.
+
+```bash
+curl 'http://localhost:4000/api/calendar?month=2026-11'
+```
+
+```json
+{
+  "month": "2026-11", "today": "2026-11-20", "target": 100000, "dailyTarget": 3333.33,
+  "revenue": 303.0, "orders": 1, "tradingDays": 1, "bestDay": "2026-11-19",
+  "days": [
+    {"date": "2026-11-19", "day": 19, "weekday": "Thu", "revenue": 303.0, "orders": 1, "cancelled": 0, "future": false, "today": false},
+    {"date": "2026-11-20", "day": 20, "weekday": "Fri", "revenue": 0.0, "orders": 0, "cancelled": 1, "future": false, "today": true},
+    {"date": "2026-11-21", "day": 21, "weekday": "Sat", "revenue": null, "orders": null, "cancelled": null, "future": true, "today": false},
+    ...
+  ]
 }
 ```
 
@@ -760,9 +799,13 @@ curl http://localhost:4000/api/config
     "google_sheets": {"enabled": false, "settings": {"web_app_url": "", "interval_minutes": 5, "last_sync": ""}},
     "whatsapp": {"enabled": false, "settings": {"business_number": "", "delivery_buildings": [], "min_order": 0}}
   },
-  "default_pin": true
+  "default_pin": true,
+  "timezone": "Asia/Kolkata"
 }
 ```
+
+`timezone` is the shop's IANA time zone (`WB_TIMEZONE`); the screens show dates and the clock in it,
+so a tablet whose own clock is on another zone still agrees with the reports.
 
 ### `POST /api/admin/login`: sign in with the PIN
 

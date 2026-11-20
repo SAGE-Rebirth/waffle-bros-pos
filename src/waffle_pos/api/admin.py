@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from waffle_pos import __version__
 from waffle_pos.api.deps import ADMIN_401, ADMIN_403, DB, AdminOnly, SignedIn, bad_request, errors
+from waffle_pos.config import get_config
 from waffle_pos.integrations import sheets
 from waffle_pos.modules import registry
 from waffle_pos.modules.base import Module
@@ -73,9 +74,11 @@ def module_view(db: DB, module: Module) -> ModuleView:
 
 @router.get("/config", summary="POS configuration for the screens")
 def public_config(db: DB) -> dict[str, Any]:
-    """Every module's on/off state and its non-secret settings. The POS screens load this at start-up."""
+    """Every module's on/off state and its non-secret settings, plus the shop `timezone` (IANA name) that
+    every date and hour on the reports uses. The POS screens load this at start-up."""
     return {
         "version": __version__,
+        "timezone": get_config().timezone,
         "modules": {
             m.key: {
                 "enabled": registry.is_enabled(db, m.key),

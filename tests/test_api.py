@@ -137,7 +137,7 @@ def test_dashboard_shapes(api_client: TestClient) -> None:
     w03 = _item_id(api_client, "W03")
     api_client.post("/api/orders", json={"items": [{"item_id": w03, "qty": 3}]})
     d = api_client.get("/api/dashboard?period=today").json()
-    assert set(d) == {"target", "charts", "insights", "items"}
+    assert set(d) == {"now", "today", "target", "charts", "insights", "items"}
     assert set(d["charts"]) >= {
         "hourly",
         "daily",
@@ -155,6 +155,16 @@ def test_dashboard_shapes(api_client: TestClient) -> None:
     day = api_client.get("/api/day-end").json()
     assert day["orders"] == 1
     assert day["revenue"] == 567
+    assert d["today"] == day["date"]
+    cal = api_client.get("/api/calendar").json()
+    assert cal["today"] == day["date"]
+    assert cal["month"] == day["date"][:7]
+    assert cal["revenue"] == 567
+    assert next(x for x in cal["days"] if x["today"])["revenue"] == 567
+    assert api_client.get("/api/calendar?month=2026-01").json()["revenue"] == 0
+    for bad in ("2026-13", "2026-1", "nope"):
+        assert api_client.get(f"/api/calendar?month={bad}").status_code == 422
+    assert api_client.get("/api/config").json()["timezone"] == "Asia/Kolkata"
 
 
 def test_menu_editing(api_client: TestClient) -> None:

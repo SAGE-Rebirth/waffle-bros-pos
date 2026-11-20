@@ -10,6 +10,7 @@ from waffle_pos.db.models import Expense, Item, Target
 from waffle_pos.modules.registry import save_settings
 from waffle_pos.schemas import OrderCreate, OrderLineIn, PaymentMethod
 from waffle_pos.services.analytics import (
+    calendar,
     charts,
     day_end,
     get_target,
@@ -379,3 +380,39 @@ def test_insights_without_expenses_and_with_profit(db_session: Session) -> None:
     assert net["tone"] == "good"
     assert net["title"] == "Net so far ₹15,484"  # 18 x 1138 - 5000
     assert net["text"].startswith("Expenses are 24% of sales")
+
+
+# ---------- calendar ----------
+def test_calendar_month(shop: Session) -> None:
+    cal = calendar(shop, "2026-11", NOW.date())
+    assert cal["month"] == "2026-11"
+    assert cal["today"] == "2026-11-18"
+    assert (cal["target"], cal["dailyTarget"]) == (50_000, 1666.67)
+    assert (cal["revenue"], cal["orders"], cal["tradingDays"]) == (805, 4, 3)
+    assert cal["bestDay"] == "2026-11-10"
+    days = cal["days"]
+    assert len(days) == 30
+    assert days[0]["weekday"] == "Sun"  # 1 Nov 2026
+    assert days[9] | {} == {
+        "date": "2026-11-10",
+        "day": 10,
+        "weekday": "Tue",
+        "revenue": 447,
+        "orders": 2,
+        "cancelled": 0,
+        "future": False,
+        "today": False,
+    }
+    assert (days[17]["revenue"], days[17]["cancelled"], days[17]["today"]) == (129, 1, True)
+    assert days[18]["future"] is True
+    assert days[18]["revenue"] is None
+
+
+def test_calendar_other_months(shop: Session) -> None:
+    october = calendar(shop, "2026-10", NOW.date())
+    assert len(october["days"]) == 31
+    assert (october["revenue"], october["orders"]) == (159, 1)
+    assert not any(d["future"] for d in october["days"])
+    empty = calendar(shop, "2026-12", NOW.date())
+    assert all(d["future"] for d in empty["days"])
+    assert (empty["revenue"], empty["bestDay"], empty["tradingDays"]) == (0, None, 0)

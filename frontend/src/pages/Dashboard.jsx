@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ComposedChart, Line, Area, ReferenceLine,
+  ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, CartesianGrid, ComposedChart, Line, Area, ReferenceLine,
 } from 'recharts';
-import { api, inr, inrShort, pinApi, today, thisMonth, SERIES } from '../api.js';
+import { api, inr, inrShort, pinApi, today, SERIES } from '../api.js';
 import { useConfig } from '../config.jsx';
 
 const HONEY = SERIES[0];
@@ -11,6 +11,10 @@ const CHOC = '#4A2C1A';
 const GRID = '#f1e8d8';
 const AXIS = { fontSize: 12, fill: '#9a8879' };
 const ICON = { good: '✅', warn: '⚠️', info: '💡' };
+const TODAY_BAR = '#4A2C1A';
+const hourLabel = (h) => `${((h % 24) + 11) % 12 + 1}${h % 24 < 12 ? 'am' : 'pm'}`;
+// '2026-11-20' -> 'Fri 20/11' (the date is already shop-local; read it as UTC so nothing shifts).
+const dayLabel = (iso) => (iso ? new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' }) : '');
 
 function Ring({ pct, expected }) {
   const r = 86, c = 2 * Math.PI * r;
@@ -99,7 +103,7 @@ function TargetCard({ t, onSaved, notify }) {
   );
 }
 
-function Charts({ c }) {
+function Charts({ c, today }) {
   const [tab, setTab] = useState('daily');
   const views = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
   return (
@@ -109,27 +113,29 @@ function Charts({ c }) {
         <div className="seg">{Object.entries(views).map(([k, l]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
       </div>
       {tab === 'hourly' && <>
-        <div className="legend" style={{ marginBottom: 8 }}><span><i style={{ background: HONEY }} />Today</span><span><i style={{ background: PURPLE }} />Average day (last 4 weeks)</span></div>
+        <div className="legend" style={{ marginBottom: 8 }}><span><i style={{ background: HONEY }} />Today ({dayLabel(today)})</span><span><i style={{ background: PURPLE }} />Average trading day (last 4 weeks)</span></div>
         <div className="chart-wrap"><ResponsiveContainer>
           <BarChart data={c.hourly} barGap={2}>
             <CartesianGrid vertical={false} stroke={GRID} />
             <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} />
             <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-            <Tooltip content={<Tip />} cursor={{ fill: '#fff3cf88' }} />
+            <Tooltip content={<Tip labelFmt={(l, p) => { const h = p[0]?.payload?.hour; return h == null ? l : `${l} to ${hourLabel(h + 1)}`; }} />} cursor={{ fill: '#fff3cf88' }} />
             <Bar dataKey="today" name="Today" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={22} />
             <Bar dataKey="average" name="Average day" fill={PURPLE} radius={[4, 4, 0, 0]} maxBarSize={22} />
           </BarChart>
         </ResponsiveContainer></div>
       </>}
       {tab === 'daily' && <>
-        <div className="legend" style={{ marginBottom: 8 }}><span><i style={{ background: HONEY }} />Revenue per day</span><span><i className="dash-key" />Daily target (even pace)</span></div>
+        <div className="legend" style={{ marginBottom: 8 }}><span><i style={{ background: HONEY }} />Revenue per day</span><span><i style={{ background: TODAY_BAR }} />Today</span><span><i className="dash-key" />Daily target (even pace)</span></div>
         <div className="chart-wrap"><ResponsiveContainer>
           <ComposedChart data={c.daily}>
             <CartesianGrid vertical={false} stroke={GRID} />
-            <XAxis dataKey="day" tick={AXIS} axisLine={false} tickLine={false} interval={1} />
+            <XAxis dataKey="day" tick={{ ...AXIS, fontSize: 11 }} axisLine={false} tickLine={false} interval={0} />
             <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-            <Tooltip content={<Tip labelFmt={(l, p) => p[0]?.payload?.date?.split('-').reverse().join('/')} />} cursor={{ fill: '#fff3cf88' }} />
-            <Bar dataKey="revenue" name="Revenue" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={18} />
+            <Tooltip content={<Tip labelFmt={(l, p) => dayLabel(p[0]?.payload?.date)} />} cursor={{ fill: '#fff3cf88' }} />
+            <Bar dataKey="revenue" name="Revenue" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={18}>
+              {c.daily.map((r) => <Cell key={r.date} fill={r.date === today ? TODAY_BAR : HONEY} />)}
+            </Bar>
             <ReferenceLine y={c.daily[0]?.dailyTarget} stroke={CHOC} strokeDasharray="5 4" strokeWidth={2} ifOverflow="extendDomain" />
           </ComposedChart>
         </ResponsiveContainer></div>
@@ -137,9 +143,9 @@ function Charts({ c }) {
         <div className="chart-wrap" style={{ height: 200 }}><ResponsiveContainer>
           <ComposedChart data={c.daily}>
             <CartesianGrid vertical={false} stroke={GRID} />
-            <XAxis dataKey="day" tick={AXIS} axisLine={false} tickLine={false} interval={1} />
+            <XAxis dataKey="day" tick={{ ...AXIS, fontSize: 11 }} axisLine={false} tickLine={false} interval={0} />
             <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-            <Tooltip content={<Tip labelFmt={(l, p) => p[0]?.payload?.date?.split('-').reverse().join('/')} />} />
+            <Tooltip content={<Tip labelFmt={(l, p) => dayLabel(p[0]?.payload?.date)} />} />
             <Area dataKey="cumulative" name="Running total" stroke={HONEY} fill={HONEY} fillOpacity={0.18} strokeWidth={2} connectNulls={false} />
             <Line dataKey="pace" name="Target pace" stroke={CHOC} strokeDasharray="5 4" strokeWidth={2} dot={false} />
           </ComposedChart>
@@ -150,7 +156,7 @@ function Charts({ c }) {
           <CartesianGrid vertical={false} stroke={GRID} />
           <XAxis dataKey="week" tick={AXIS} axisLine={false} tickLine={false} />
           <YAxis tick={AXIS} axisLine={false} tickLine={false} tickFormatter={inrShort} width={48} />
-          <Tooltip content={<Tip labelFmt={(l) => `Week of ${l}`} />} cursor={{ fill: '#fff3cf88' }} />
+          <Tooltip content={<Tip labelFmt={(l) => `Week of ${l} (Mon to Sun)`} />} cursor={{ fill: '#fff3cf88' }} />
           <Bar dataKey="revenue" name="Revenue" fill={HONEY} radius={[4, 4, 0, 0]} maxBarSize={36} />
         </BarChart>
       </ResponsiveContainer></div>}
@@ -201,7 +207,7 @@ function Items({ initial }) {
     <div className="f"><div className="k">{k}</div><div className="n">{i ? i.name : '—'}</div><div className="s num">{i ? s(i) : 'No sales yet'}</div></div>
   );
   return (
-    <div className="card panel span-7">
+    <div className="card panel span-7 col">
       <div className="panel-head">
         <h3>What's selling</h3>
         <div className="seg">{[['today', 'Today'], ['week', '7 days'], ['month', 'This month'], ['all', 'All time']].map(([k, l]) =>
@@ -240,11 +246,11 @@ function Items({ initial }) {
   );
 }
 
-function Expenses({ month, onChange, notify }) {
+function Expenses({ month, day, onChange, notify }) {
   const { settings } = useConfig();
   const cats = settings('targets').expense_categories?.length ? settings('targets').expense_categories : ['other'];
   const [data, setData] = useState(null);
-  const [f, setF] = useState({ category: '', amount: '', date: today(), note: '', recurring: false });
+  const [f, setF] = useState({ category: '', amount: '', date: day || today(), note: '', recurring: false });
   const load = useCallback(() => api.get(`/api/expenses?month=${month}`).then(setData), [month]);
   useEffect(() => { load(); }, [load]);
   const category = cats.includes(f.category) ? f.category : cats.includes('ingredients') ? 'ingredients' : cats[0];
@@ -261,7 +267,7 @@ function Expenses({ month, onChange, notify }) {
   };
   const list = data ? [...data.recurring.map((e) => ({ ...e, rec: true })), ...data.oneOff] : [];
   return (
-    <div className="card panel span-5">
+    <div className="card panel span-5 col">
       <div className="panel-head"><h3>Expenses this month</h3>{data && <b className="num">{inr(data.total)}</b>}</div>
       <div className="exp-form">
         <select value={category} onChange={(e) => setF({ ...f, category: e.target.value })}>
@@ -274,7 +280,7 @@ function Expenses({ month, onChange, notify }) {
         <button className="btn primary" onClick={add} disabled={!f.amount}>Add</button>
       </div>
       {data?.byCategory?.length > 0 && <div style={{ marginBottom: 12 }}><SplitBars rows={data.byCategory.map((c) => ({ name: c.category, value: c.amount }))} color="#8a5a0b" /></div>}
-      <div className="scroll" style={{ maxHeight: 240 }}>
+      <div className="scroll fill">
         <table className="tbl num">
           <tbody>
             {list.map((e) => (
@@ -305,23 +311,24 @@ export default function Dashboard({ notify, onChange }) {
     <div className="page">
       <div className="page-head">
         <h1>Dashboard</h1>
-        <span className="muted small">Updates every minute</span>
+        <span className="muted small">{dayLabel(d.today)} · as of {d.now.slice(11, 16)} · updates every minute</span>
         <div className="spacer" style={{ flex: 1 }} />
+        <a className="btn sm" href="#dayend">📅 Any day's sales</a>
         <button className="btn sm" onClick={load}>↻ Refresh</button>
       </div>
       <div className="dash">
         <TargetCard t={d.target} onSaved={changed} notify={notify} />
-        <Charts c={d.charts} />
-        <div className="card panel span-4 insights-card">
+        <Charts c={d.charts} today={d.today} />
+        <div className="card panel span-4 insights-card col">
           <h3>Insights</h3>
-          <div className="insights">
+          <div className="insights fill scroll">
             {d.insights.map((i, k) => (
               <div key={k} className={`insight ${i.tone}`}><span className="ic">{ICON[i.tone]}</span><div><b>{i.title}</b><p>{i.text}</p></div></div>
             ))}
           </div>
         </div>
         <Items initial={d.items} />
-        <Expenses month={thisMonth()} onChange={changed} notify={notify} />
+        <Expenses month={d.target.month} day={d.today} onChange={changed} notify={notify} />
         <div className="card panel span-4">
           <h3>Sales by category · this month</h3>
           <SplitBars rows={d.charts.categorySplit} color={(r, i) => SERIES[i % SERIES.length]} />
@@ -329,6 +336,7 @@ export default function Dashboard({ notify, onChange }) {
         <div className="card panel span-4">
           <h3>Average sales by weekday · last 8 weeks</h3>
           <SplitBars rows={d.charts.weekday.map((w) => ({ name: w.day, value: w.average }))} color={HONEY} />
+          <p className="small muted card-note">Average of the days that had sales, up to yesterday. Today joins tomorrow.</p>
         </div>
         <div className="card panel span-4">
           <h3>Payment methods · this month</h3>

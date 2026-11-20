@@ -413,6 +413,60 @@ def item_stats(session: Session, period: str, now: datetime) -> dict[str, Any]:
     }
 
 
+# ---------- Calendar ----------
+def calendar(session: Session, month: str, today: date) -> dict[str, Any]:
+    """One month, day by day (shop-local days), for the Day End calendar.
+
+    Days after ``today`` have ``future: true`` and no figures, so the screen can grey them out.
+    """
+    start = clock.parse_month(month)
+    end = clock.next_month_start(start)
+    paid = _by_day(session, start, end)
+    day = _day_of(Order.created_at)
+    cancelled = {
+        str(d): int(n)
+        for d, n in session.execute(
+            select(day, func.count(Order.id))
+            .where(Order.status == "cancelled", Order.created_at >= _at(start), Order.created_at < _at(end))
+            .group_by(day)
+        ).all()
+    }
+    target = get_target(session, month)
+    dim = clock.days_in_month(start)
+    days: list[dict[str, Any]] = []
+    for n in range(1, dim + 1):
+        d = start.replace(day=n)
+        key = d.isoformat()
+        rev, orders = paid.get(key, (0.0, 0))
+        future = d > today
+        days.append(
+            {
+                "date": key,
+                "day": n,
+                "weekday": _WEEKDAYS[d.weekday()],
+                "revenue": None if future else money(rev),
+                "orders": None if future else orders,
+                "cancelled": None if future else cancelled.get(key, 0),
+                "future": future,
+                "today": d == today,
+            }
+        )
+    revenue = sum(r for r, _ in paid.values())
+    orders_total = sum(n for _, n in paid.values())
+    best = max((x for x in days if x["revenue"]), key=lambda x: x["revenue"], default=None)
+    return {
+        "month": month,
+        "today": today.isoformat(),
+        "target": target,
+        "dailyTarget": money(target / dim),
+        "revenue": money(revenue),
+        "orders": orders_total,
+        "tradingDays": sum(1 for x in days if x["orders"]),
+        "bestDay": best["date"] if best else None,
+        "days": days,
+    }
+
+
 # ---------- Day end ----------
 def day_end(session: Session, day: date) -> dict[str, Any]:
     nxt = day + timedelta(days=1)
