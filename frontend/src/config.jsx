@@ -80,12 +80,12 @@ function applyTheme(t) {
 const ConfigContext = createContext(null);
 
 export function ConfigProvider({ children }) {
-  const [state, setState] = useState({ modules: merge(null), version: null, default_pin: false, pin_length: 0, loaded: false, error: null });
+  const [state, setState] = useState({ modules: merge(null), version: null, default_pin: false, loaded: false, error: null });
 
   const reload = useCallback(async () => {
     try {
       const c = await api.get('/api/config');
-      setState({ modules: merge(c.modules), version: c.version ?? null, default_pin: !!c.default_pin, pin_length: Number(c.pin_length) || 0, loaded: true, error: null });
+      setState({ modules: merge(c.modules), version: c.version ?? null, default_pin: !!c.default_pin, loaded: true, error: null });
     } catch (e) {
       // Keep whatever we had (defaults on first load) so billing still works.
       setState((s) => ({ ...s, loaded: true, error: e.message }));

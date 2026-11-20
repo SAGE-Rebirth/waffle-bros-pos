@@ -41,43 +41,51 @@ function toImage(file, max = 256) {
 }
 
 // ---------- PIN sign-in ----------
+// How many digits the PIN has, remembered on this device after a successful sign-in or PIN change,
+// so the pad shows the right number of dots (4 to 8). Never the PIN itself.
+const PIN_LEN_KEY = 'wb-pin-length';
+const knownPinLength = () => {
+  try { const n = Number(localStorage.getItem(PIN_LEN_KEY)); return n >= 4 && n <= 8 ? n : null; } catch { return null; }
+};
+const rememberPinLength = (n) => {
+  try { if (n) localStorage.setItem(PIN_LEN_KEY, String(n)); else localStorage.removeItem(PIN_LEN_KEY); } catch { /* private mode */ }
+};
+
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
 
 function PinScreen({ onSignedIn }) {
-  // The server tells us how many digits the PIN has (0 if it doesn't know yet, e.g. a PIN set
-  // before this was recorded); then the pad shows that many dots and signs in on the last digit.
-  const { pin_length: pinLength, reload } = useConfig();
-  const maxLen = pinLength || 8;
   const [pin, setPin] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(false);
+  const [known, setKnown] = useState(knownPinLength);
+  const slots = Math.max(known || 4, pin.length);
 
   const submit = useCallback(async (p) => {
     if (p.length < 4 || busy) return;
     setBusy(true); setErr('');
     try {
       const r = await api.post('/api/admin/login', { pin: p });
-      if (!pinLength) reload(); // the server has now recorded the PIN length
+      rememberPinLength(p.length);
       onSignedIn(r);
     } catch (e) {
       setErr(e.status === 401 ? 'Wrong PIN. Try again.' : e.message);
+      // The PIN may have been changed on another device to a different length: stop auto sign-in.
+      if (e.status === 401 && known) { rememberPinLength(null); setKnown(null); }
       setPin(''); setShake(true); setTimeout(() => setShake(false), 400);
     }
     setBusy(false);
-  }, [busy, onSignedIn, pinLength, reload]);
+  }, [busy, onSignedIn, known]);
 
   const press = useCallback((k) => {
     setErr('');
     if (k === 'back') setPin((p) => p.slice(0, -1));
     else if (k === 'clear') setPin('');
-    else setPin((p) => (p.length < maxLen ? p + k : p));
-  }, [maxLen]);
+    else setPin((p) => (p.length < 8 ? p + k : p));
+  }, []);
 
-  // With a known length, sign in as soon as the last digit is entered.
-  useEffect(() => {
-    if (pinLength && pin.length === pinLength) submit(pin);
-  }, [pin, pinLength]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Once the PIN length is known on this device, sign in as soon as the last digit is entered.
+  useEffect(() => { if (known && pin.length === known) submit(pin); }, [pin, known]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const h = (e) => {
@@ -93,14 +101,13 @@ function PinScreen({ onSignedIn }) {
     return () => window.removeEventListener('keydown', h);
   }, [press, submit, pin]);
 
-  const slots = pinLength || Math.max(4, pin.length);
   return (
     <div className="page pin-page">
       <div className={`card pin-card${shake ? ' shake' : ''}`}>
         <div className="pin-lock" aria-hidden="true">🔐</div>
         <h1>Admin sign-in</h1>
         <p className="small muted">Enter the admin PIN to change the menu, modules and settings.</p>
-        <div className="pin-dots" aria-label={`${pin.length} of ${pinLength || 'up to 8'} digits entered`}>
+        <div className="pin-dots" aria-label={`${pin.length} of ${slots} digits entered`}>
           {Array.from({ length: slots }, (_, i) => <span key={i} className={i < pin.length ? 'on' : ''} />)}
         </div>
         <div className="err pin-err" role="alert">{err || ' '}</div>
@@ -116,7 +123,7 @@ function PinScreen({ onSignedIn }) {
           {busy ? 'Checking…' : 'Sign in'}
         </button>
         <p className="small muted" style={{ marginBottom: 0 }}>
-          {pinLength ? `${pinLength}-digit PIN. You can also type it on the keyboard.` : 'You can also type the PIN and press Enter.'}
+          {known ? 'Signs in when the last digit is entered. You can also type the PIN.' : 'PINs are 4 to 8 digits. Type or tap, then press Enter.'}
         </p>
       </div>
     </div>
@@ -139,6 +146,7 @@ function ChangePin({ onChanged, compact }) {
     setBusy(true); setErr('');
     try {
       const r = await adminApi.post('/api/admin/pin', { new_pin: p1 });
+      rememberPinLength(p1.length);
       setP1(''); setP2('');
       onChanged(r);
     } catch (ex) { if (ex.status !== 401) setErr(ex.message); }

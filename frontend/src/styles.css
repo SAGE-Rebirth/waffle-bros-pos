@@ -412,3 +412,35 @@ input.invalid { border-color: var(--bad); box-shadow: 0 0 0 3px rgba(179, 38, 30
 
 .pin-modal { width: min(360px, 100%); display: grid; gap: 10px; }
 .pin-modal input { font-size: 24px; letter-spacing: 8px; text-align: center; }
+
+/* ---------- Day End calendar ---------- */
+.stack { display: grid; gap: 16px; align-content: start; }
+.dcal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.dcal-head h3 { margin: 0; }
+.dcal-head .btn { font-size: 20px; line-height: 1; padding: 4px 12px; }
+.dcal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.dcal-wd { text-align: center; font-size: 11px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; padding-bottom: 4px; }
+.dcal-day {
+  display: grid; gap: 1px; justify-items: center; align-content: center; padding: 6px 2px; min-height: 48px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--white); color: var(--ink);
+}
+.dcal-day .n { font-weight: 700; font-size: 14px; }
+.dcal-day .v { font-size: 11px; color: var(--ink-3); }
+.dcal-day:hover:not(:disabled) { border-color: var(--honey); }
+.dcal-day.sold { background: rgba(246, 185, 43, calc(var(--heat, 0.3) * 0.55)); border-color: #f1d18a; }
+.dcal-day.sold .v { color: var(--choc); font-weight: 700; }
+.dcal-day.hit { background: var(--good-bg); border-color: #a5d6a7; }
+.dcal-day.hit .v { color: var(--good); }
+.dcal-day.today { box-shadow: inset 0 0 0 2px var(--honey); }
+.dcal-day.sel { background: var(--choc); border-color: var(--choc); color: var(--yellow-soft); }
+.dcal-day.sel .v { color: var(--yellow); }
+.dcal-day.future { opacity: 0.4; cursor: default; background: var(--info-bg); }
+.dcal-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.dcal-foot div { display: grid; gap: 2px; font-size: 12px; }
+.dcal-foot b { font-size: 16px; color: var(--choc); }
+.dcal-key { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.dcal-key span { display: inline-flex; align-items: center; gap: 6px; }
+.dcal-key .k { width: 12px; height: 12px; border-radius: 4px; display: inline-block; border: 1px solid var(--line); }
+.dcal-key .k.sold { background: rgba(246, 185, 43, 0.45); }
+.dcal-key .k.hit { background: var(--good-bg); border-color: #a5d6a7; }
+.dcal-key .k.today { box-shadow: inset 0 0 0 2px var(--honey); }

@@ -760,9 +760,8 @@ T=$(curl -s -X POST http://localhost:4000/api/admin/login -H 'Content-Type: appl
 
 Open (no token). Every module except `admin`, with its on/off state and its settings minus secret
 ones. The screens load this at start-up for the shop name, theme colours, payment methods, order
-types, the GST line, the discount cap and the bill footer. `pin_length` is how many digits the
-admin PIN has, so the sign-in pad shows that many dots and signs in on the last digit; it is 0
-for a PIN set before the length was recorded, until the next successful sign-in.
+types, the GST line, the discount cap and the bill footer. Nothing about the admin PIN is here
+except whether it is still the default (`default_pin`).
 
 ```bash
 curl http://localhost:4000/api/config
@@ -801,8 +800,7 @@ curl http://localhost:4000/api/config
     "google_sheets": {"enabled": false, "settings": {"web_app_url": "", "interval_minutes": 5, "last_sync": ""}},
     "whatsapp": {"enabled": false, "settings": {"business_number": "", "delivery_buildings": [], "min_order": 0}}
   },
-  "default_pin": true,
-  "pin_length": 4
+  "default_pin": true
 }
 ```
 

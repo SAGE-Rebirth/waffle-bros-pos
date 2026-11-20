@@ -41,19 +41,6 @@ def uses_default_pin(session: Session) -> bool:
     return not _admin(session).pin_hash
 
 
-def pin_length(session: Session) -> int:
-    """Digits in the current PIN, for the sign-in pad's dots; 0 if not known yet."""
-    cfg = _admin(session)
-    return cfg.pin_length if cfg.pin_hash else len(DEFAULT_PIN)
-
-
-def remember_pin_length(session: Session, pin: str) -> None:
-    """Record the length of a PIN that has just been checked, if it was not stored yet."""
-    cfg = _admin(session)
-    if cfg.pin_hash and cfg.pin_length != len(pin):
-        store_internal(session, "admin", {"pin_length": len(pin)})
-
-
 def _pin_shaped(pin: str) -> bool:
     return pin.isascii() and pin.isdigit() and MIN_PIN_LENGTH <= len(pin) <= MAX_PIN_LENGTH
 
@@ -77,12 +64,7 @@ def set_pin(session: Session, new_pin: str) -> None:
     store_internal(
         session,
         "admin",
-        {
-            "pin_hash": _hash(new_pin, salt),
-            "pin_salt": salt,
-            "token_secret": secrets.token_hex(32),
-            "pin_length": len(new_pin),
-        },
+        {"pin_hash": _hash(new_pin, salt), "pin_salt": salt, "token_secret": secrets.token_hex(32)},
     )
 
 

@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api, inr, pinApi, today } from '../api.js';
+import SalesCalendar from '../components/SalesCalendar.jsx';
+
+const longDate = (iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 // #dayend?date=YYYY-MM-DD opens a given day (the Dashboard calendar links here).
 const dateFromHash = () => {
@@ -15,9 +18,10 @@ export default function DayEnd({ notify, onChange }) {
   }, [date]);
   const [d, setD] = useState(null);
   const [orders, setOrders] = useState([]);
+  const [rev, setRev] = useState(0); // bumps the calendar after a cancel
   const load = useCallback(() => {
     api.get(`/api/day-end?date=${date}`).then(setD).catch((e) => notify(e.message));
-    api.get(`/api/orders?date=${date}`).then(setOrders).catch(() => {});
+    api.get(`/api/orders?date=${date}`).then((list) => setOrders([...list].sort((a, b) => b.created_at.localeCompare(a.created_at)))).catch(() => {});
   }, [date]);
   useEffect(() => { load(); }, [load]);
 
@@ -26,11 +30,12 @@ export default function DayEnd({ notify, onChange }) {
     try {
       await pinApi.post(`/api/orders/${o.id}/cancel`, {}, `Enter the admin PIN to cancel bill ${o.bill_no}.`);
       notify(`Bill ${o.bill_no} cancelled`);
-      load(); onChange();
+      load(); onChange(); setRev((n) => n + 1);
     } catch (e) { if (!e.cancelled) notify(e.message); }
   };
 
   if (!d) return <div className="page muted">Loading…</div>;
+  const isToday = d.date === today();
   const maxQty = Math.max(1, ...d.items.map((i) => i.qty));
   const top = d.items.slice(0, 3);
   const weak = [...d.items].sort((a, b) => a.qty - b.qty).slice(0, 3).filter((i) => !top.includes(i));
@@ -38,42 +43,48 @@ export default function DayEnd({ notify, onChange }) {
     <div className="page">
       <div className="page-head">
         <h1>Day End Report</h1>
-        <input type="date" style={{ width: 170 }} value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+        <span className="muted">{longDate(d.date)}{isToday && ' · today so far'}</span>
+        <span className="grow" />
+        {!isToday && <button className="btn sm" onClick={() => setDate(today())}>Back to today</button>}
+        <input type="date" style={{ width: 170 }} value={date} max={today()} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Pick a date" />
       </div>
       <div className="dash">
-        <div className="card panel span-12">
-          <div className="stats num" style={{ marginTop: 0 }}>
-            <div className="stat"><div className="k">Sales</div><div className="v">{inr(d.revenue)}</div></div>
-            <div className="stat"><div className="k">Orders</div><div className="v">{d.orders}</div></div>
-            <div className="stat"><div className="k">Average bill</div><div className="v">{inr(d.aov)}</div></div>
-            <div className="stat"><div className="k">Cash / UPI / Card</div><div className="v small" style={{ fontSize: 15 }}>
-              {['cash', 'upi', 'card'].map((m) => inr(d.payments.find((p) => p.method === m)?.amount || 0)).join(' / ')}</div>
-              {d.cancelled.n > 0 && <div className="s">{d.cancelled.n} cancelled ({inr(d.cancelled.amount)})</div>}</div>
-          </div>
-        </div>
-
-        <div className="card panel span-7">
-          <h3>Items sold</h3>
-          {!d.items.length ? <div className="muted">No sales on this day.</div> : (
-            <table className="tbl num">
-              <thead><tr><th>Item</th><th>Category</th><th className="r">Qty</th><th className="r">Orders</th><th className="r">Revenue</th><th style={{ width: 100 }} /></tr></thead>
-              <tbody>{d.items.map((i) => (
-                <tr key={i.name}><td><b>{i.name}</b></td><td className="muted">{i.category}</td><td className="r">{i.qty}</td><td className="r">{i.orders}</td><td className="r">{inr(i.revenue)}</td>
-                  <td><div className="bar-inline"><div style={{ width: `${(i.qty / maxQty) * 100}%` }} /></div></td></tr>
-              ))}</tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="span-5" style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
+        <div className="span-4 stack">
+          <SalesCalendar selected={date} onSelect={setDate} refreshKey={rev} />
           <div className="card panel">
-            <h3>What worked today</h3>
-            {top.length ? <ul className="steps">{top.map((i) => <li key={i.name}><b>{i.name}</b>: {i.qty} sold, {inr(i.revenue)}</li>)}</ul> : <div className="muted small">Nothing yet.</div>}
+            <h3>{isToday ? 'What worked today' : 'What worked'}</h3>
+            {top.length ? <ul className="steps">{top.map((i) => <li key={i.name}><b>{i.name}</b>: {i.qty} sold, {inr(i.revenue)}</li>)}</ul> : <div className="muted small">No sales on this day.</div>}
             {weak.length > 0 && <>
               <h3 style={{ marginTop: 14 }}>Sold the least</h3>
               <ul className="steps">{weak.map((i) => <li key={i.name}>{i.name}: {i.qty}</li>)}</ul>
             </>}
           </div>
+        </div>
+
+        <div className="span-8 stack">
+          <div className="card panel">
+            <div className="stats num" style={{ marginTop: 0 }}>
+              <div className="stat"><div className="k">Sales</div><div className="v">{inr(d.revenue)}</div></div>
+              <div className="stat"><div className="k">Bills</div><div className="v">{d.orders}</div>{d.cancelled.n > 0 && <div className="s">+ {d.cancelled.n} cancelled ({inr(d.cancelled.amount)})</div>}</div>
+              <div className="stat"><div className="k">Average bill</div><div className="v">{inr(d.aov)}</div></div>
+              <div className="stat"><div className="k">Cash / UPI / Card</div><div className="v" style={{ fontSize: 15, marginTop: 6 }}>
+                {['cash', 'upi', 'card'].map((m) => inr(d.payments.find((p) => p.method === m)?.amount || 0)).join(' / ')}</div></div>
+            </div>
+          </div>
+
+          <div className="card panel">
+            <h3>Items sold</h3>
+            {!d.items.length ? <div className="muted">No sales on this day.</div> : (
+              <table className="tbl num">
+                <thead><tr><th>Item</th><th>Category</th><th className="r">Qty</th><th className="r">Orders</th><th className="r">Revenue</th><th style={{ width: 100 }} /></tr></thead>
+                <tbody>{d.items.map((i) => (
+                  <tr key={i.name}><td><b>{i.name}</b></td><td className="muted">{i.category}</td><td className="r">{i.qty}</td><td className="r">{i.orders}</td><td className="r">{inr(i.revenue)}</td>
+                    <td><div className="bar-inline"><div style={{ width: `${(i.qty / maxQty) * 100}%` }} /></div></td></tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+
           <div className="card panel">
             <h3>Not sold at all ({d.notSold.length})</h3>
             {d.notSold.length ? <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>{d.notSold.map((i) => <span key={i.name} className="pill warn">{i.name}</span>)}</div>

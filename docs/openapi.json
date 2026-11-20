@@ -1796,7 +1796,7 @@
     },
     "/api/config": {
       "get": {
-        "description": "Every module's on/off state and its non-secret settings. The POS screens load this at start-up.\n`pin_length` is how many digits the admin PIN has (0 if not known yet), for the sign-in pad.",
+        "description": "Every module's on/off state and its non-secret settings. The POS screens load this at start-up.",
         "operationId": "public_config_api_config_get",
         "responses": {
           "200": {
