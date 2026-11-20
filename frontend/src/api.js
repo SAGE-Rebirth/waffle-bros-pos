@@ -23,8 +23,9 @@ export const SIGNED_OUT_EVENT = 'wb:admin-signed-out';
 
 function authHeaders(withAuth) {
   if (!withAuth) return {};
-  const s = adminSession.get();
-  return s ? { Authorization: `Bearer ${s.token}` } : {};
+  // A per-action token from the counter's PIN prompt (see pinApi), else the Admin page session.
+  const token = typeof withAuth === 'string' ? withAuth : adminSession.get()?.token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function signedOut() {
@@ -40,7 +41,7 @@ async function req(method, url, body, withAuth = false) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401 && withAuth) signedOut();
+    if (res.status === 401 && withAuth === true) signedOut();
     let msg = data.error || data.message;
     if (!msg && Array.isArray(data.detail)) msg = data.detail.map((d) => `${(d.loc || []).slice(1).join('.')}: ${d.msg}`).join('; ');
     const err = new Error(msg || (typeof data.detail === 'string' ? data.detail : `Request failed (${res.status})`));
@@ -63,8 +64,10 @@ export const adminApi = {
   del: (u) => req('DELETE', u, undefined, true),
 };
 
-// Same calls for counter actions that need the PIN (cancel a bill, expenses, targets): when
-// nobody is signed in, or the token has expired, the PIN prompt opens and the call is retried.
+// Same calls for counter actions that need the PIN (cancel a bill, expenses, targets). The PIN is
+// asked for every time: the prompt gets a short-lived token (POST /api/admin/login with once:true)
+// that is used for this one call and then dropped, so nothing stays signed in on the tablet.
+// An Admin page session on the same tablet is not reused either.
 export const PIN_NEEDED_EVENT = 'wb:pin-needed';
 export function requirePin(reason) {
   return new Promise((resolve, reject) => {
@@ -72,14 +75,8 @@ export function requirePin(reason) {
   });
 }
 async function withPin(method, u, b, reason) {
-  if (!adminSession.get()) await requirePin(reason);
-  try {
-    return await req(method, u, b, true);
-  } catch (e) {
-    if (e.status !== 401) throw e;
-    await requirePin(reason);
-    return req(method, u, b, true);
-  }
+  const { token } = await requirePin(reason);
+  return req(method, u, b, token);
 }
 export const pinApi = {
   post: (u, b, reason) => withPin('POST', u, b || {}, reason),

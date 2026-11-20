@@ -7,6 +7,7 @@ Google Sheet cell escaping), which are tested with explicit values.
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -21,10 +22,12 @@ from waffle_pos.app import create_app
 from waffle_pos.config import AppConfig
 from waffle_pos.integrations import sheets
 from waffle_pos.security import APP_CSP, DOCS_CSP, host_allowed
+from waffle_pos.services import auth
 from waffle_pos.services.auth import LoginThrottle
 
 Json = dict[str, Any]
 DEFAULT_PIN_403 = {"error": "Change the default PIN 1234 first (POST /api/admin/pin)"}
+SCRIPT = "https://script.google.com/macros/s/"
 TOO_LARGE = {"error": "The request is too large"}
 PNG = (
     "data:image/png;base64,"
@@ -361,6 +364,10 @@ def test_limits_at_the_edge_are_accepted(client: TestClient) -> None:
         "data:text/html;base64,PGgxPmhpPC9oMT4=",
         "data:image/png;base64,abc def",
         "/uploads/<script>.png",
+        "/../../etc/passwd",
+        "/assets/../api/backup",
+        "/api/backup",
+        "/assets//evil.png",
     ],
 )
 def test_external_or_unsafe_images_are_rejected(client: TestClient, image: str) -> None:
@@ -429,6 +436,8 @@ def test_formula_like_text_is_escaped_for_the_sheet() -> None:
         "+12.5",
         "Ravi",
         "a=b",
+        "\t=1+1",
+        "\r=1+1",
         -3,
         12.5,
         0,
@@ -448,6 +457,8 @@ def test_formula_like_text_is_escaped_for_the_sheet() -> None:
             "+12.5",
             "Ravi",
             "a=b",
+            "'\t=1+1",
+            "'\r=1+1",
             -3,
             12.5,
             0,
@@ -508,3 +519,61 @@ def test_server_trusts_forwarded_for_only_from_configured_proxies(
         entry.main()
         assert calls[-1]["proxy_headers"] is True
         assert calls[-1]["forwarded_allow_ips"] == expected
+
+
+# ---------- Review of 2026-11-20: PIN at the counter, PIN change, settings limits ----------
+def test_changing_the_pin_needs_the_current_pin(client: TestClient) -> None:
+    """A token left signed in on a tablet must not be enough to take over the PIN."""
+    h = owner(client)
+    for body in ({"new_pin": "13579"}, {"new_pin": "13579", "current_pin": "9999"}):
+        r = client.post("/api/admin/pin", headers=h, json=body)
+        assert (r.status_code, r.json()) == (400, {"error": "Your current PIN is wrong"})
+    assert client.post("/api/admin/login", json={"pin": "2468"}).status_code == 200  # unchanged
+    r = client.post("/api/admin/pin", headers=h, json={"new_pin": "13579", "current_pin": "2468"})
+    assert r.status_code == 200, r.text
+    assert client.post("/api/admin/login", json={"pin": "13579"}).status_code == 200
+
+
+def test_wrong_current_pins_count_towards_the_lockout(client: TestClient) -> None:
+    h = owner(client)
+    for _ in range(5):
+        client.post("/api/admin/pin", headers=h, json={"new_pin": "13579", "current_pin": "0000"})
+    r = client.post("/api/admin/pin", headers=h, json={"new_pin": "13579", "current_pin": "2468"})
+    assert r.status_code == 429 and int(r.headers["Retry-After"]) > 0
+    assert client.post("/api/admin/login", json={"pin": "2468"}).status_code == 429
+
+
+def test_first_pin_change_needs_no_current_pin(client: TestClient) -> None:
+    r = client.post("/api/admin/pin", headers=bearer(default_token(client)), json={"new_pin": "2468"})
+    assert r.status_code == 200, r.text
+
+
+def test_counter_pin_tokens_last_two_minutes(client: TestClient) -> None:
+    owner(client)
+    once = client.post("/api/admin/login", json={"pin": "2468", "once": True}).json()
+    full = client.post("/api/admin/login", json={"pin": "2468"}).json()
+    now = time.time()
+    assert now + 100 < once["expires_at"] <= now + 121
+    assert full["expires_at"] > now + 11 * 3600  # the Admin page session is unchanged (12 h)
+    assert client.get("/api/admin/modules", headers=bearer(once["token"])).status_code == 200
+    factory = cast(FastAPI, client.app).state.session_factory
+    with factory() as db:  # an expired once-token is refused
+        assert auth.verify_token(db, once["token"], now=now + 200) is False
+        assert auth.verify_token(db, full["token"], now=now + 200) is True
+
+
+@pytest.mark.parametrize(
+    ("key", "settings", "field"),
+    [
+        ("targets", {"default_target": 1e300}, "default_target"),
+        ("targets", {"expense_categories": ["x" * 31]}, "expense_categories.0"),
+        ("whatsapp", {"delivery_buildings": ["y" * 61]}, "delivery_buildings.0"),
+        ("whatsapp", {"min_order": 1e308}, "min_order"),
+        ("google_sheets", {"web_app_url": SCRIPT + "x@evil.com/exec"}, "web_app_url"),
+        ("google_sheets", {"web_app_url": SCRIPT + "../../x"}, "web_app_url"),
+    ],
+)
+def test_module_settings_have_limits(client: TestClient, key: str, settings: Json, field: str) -> None:
+    r = client.put(f"/api/admin/modules/{key}", headers=owner(client), json={"settings": settings})
+    assert r.status_code == 400, r.text
+    assert r.json()["error"].startswith(f"{field}: ")

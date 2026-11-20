@@ -72,9 +72,9 @@ function writeTab_(ss, t) {
   if (last > rows.length + 1) sheet.getRange(rows.length + 2, 1, last - rows.length - 1, width).clearContent();
 }
 
-// Text that starts with = + - or @ would run as a formula in the sheet; keep it as plain text.
+// Text that starts with = + - @, a tab or a carriage return could run as a formula; keep it as plain text.
 function clean_(v) {
-  if (typeof v === 'string' && /^[=+\-@]/.test(v) && isNaN(Number(v))) return "'" + v;
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(v) && isNaN(Number(v))) return "'" + v;
   return v;
 }
 

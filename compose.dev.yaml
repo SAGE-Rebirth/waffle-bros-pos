@@ -1,4 +1,4 @@
-# make dev: both services with live reload. Screens on http://localhost:5173, Swagger on
+# make dev: both services with live reload. Screens on http://localhost:5173 (this computer only), Swagger on
 # http://localhost:8000/docs. Runs as a separate project (waffle-bros-dev) with its own
 # pos-dev-data volume, so it never touches the shop's real data and can run next to `make up`.
 services:
@@ -14,7 +14,9 @@ services:
       - pos-dev-data:/data
       - ./src:/app/src:ro
     ports:
-      - "8000:4000"
+      # This computer only: the dev API trusts X-Forwarded-For from anyone (for the Vite proxy),
+      # so on the Wi-Fi it would let a device dodge the per-tablet PIN lockout.
+      - "127.0.0.1:8000:4000"
 
   web:
     image: waffle-bros-pos-web:dev   # never overwrites the shop's :latest image
@@ -29,7 +31,7 @@ services:
       - ./frontend/public:/frontend/public:ro
       - ./frontend/index.html:/frontend/index.html:ro
     ports: !override
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"  # this computer only: the dev server serves the source code
     read_only: false         # Vite writes its cache into node_modules/.vite
     healthcheck:
       disable: true

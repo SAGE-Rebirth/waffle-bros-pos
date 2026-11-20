@@ -21,12 +21,13 @@ _Screenshots use the sample data from `uv run python -m waffle_pos.demo`._
 
 ## Admin dashboard
 
-Menu changes, settings, backups, cancelling a bill, the monthly target, expenses and the Google Sheet sync are behind an admin PIN. Staff at the counter can bill and look at the dashboard and day-end, but they can't change prices or quietly cancel a paid bill. When the counter screens need the PIN (Cancel on Day End, the target or expenses on the Dashboard), a PIN box pops up.
+Menu changes, settings, backups, cancelling a bill, the monthly target, expenses and the Google Sheet sync are behind an admin PIN. Staff at the counter can bill and look at the dashboard and day-end, but they can't change prices or quietly cancel a paid bill. When the counter screens need the PIN (Cancel on Day End, the target or expenses on the Dashboard), a PIN box pops up. It asks every time and remembers nothing, so the PIN you type at the counter can't be reused by whoever picks up the tablet next.
 
 - The PIN is **1234** on a new install. Sign in with it and the Admin page shows only one thing: choose your own PIN (4 to 8 digits). Nothing else works until you do, because 1234 is the same in every copy of the POS. Do this on the first day.
 - After 5 wrong PINs on a device, that device has to wait 30 seconds, then longer with every further wrong PIN (up to 15 minutes).
-- Changing the PIN signs everyone out of the admin dashboard, on every device.
-- Sign-in lasts 12 hours on that device.
+- Changing the PIN asks for the current PIN, and signs everyone out of the admin dashboard on every device.
+- The Admin page signs out after 15 minutes without use (or when you press Sign out or close the browser).
+- Use 6 to 8 digits for the PIN: much harder to guess than 4.
 - Forgot the PIN? On the shop computer, run `make pin-reset`. It goes back to 1234 and asks for a new one.
 - More about keeping the POS safe (guest Wi-Fi for customers, never port-forwarding 4000, storing backups): [docs/SECURITY.md](docs/SECURITY.md).
 - Features are **modules** you switch on or off under **Admin → Modules**: GST (off until you switch it on), discounts (on, at most 20% of a bill by default), Google Sheet sync (off), and WhatsApp orders (phase 2). Shop details, colours, billing options and targets are always on.
@@ -79,8 +80,8 @@ See `CLAUDE.md` for conventions, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) fo
 
 `make dev` runs both services with live reload, using only Docker:
 
-- Screens with hot reload on http://localhost:5173 (the Vite dev server, forwarding `/api` to `api`).
-- The API with auto-reload on http://localhost:8000 (Swagger at http://localhost:8000/docs), running your `src/` directly.
+- Screens with hot reload on http://localhost:5173, on this computer only (the Vite dev server, forwarding `/api` to `api`).
+- The API with auto-reload on http://localhost:8000, also this computer only (Swagger at http://localhost:8000/docs), running your `src/` directly.
 - It's a separate Docker project (`waffle-bros-dev`) with its own `pos-dev-data` volume, so it never touches the shop's data and can run next to `make up`. Ctrl+C stops it.
 
 `make check` needs [uv](https://docs.astral.sh/uv/) and Node.js 22 on your computer. The commands underneath, for when you need just one:

@@ -359,6 +359,12 @@
       },
       "LoginIn": {
         "properties": {
+          "once": {
+            "default": false,
+            "description": "True for a token that lasts only 2 minutes: the counter's PIN prompt uses one per action, so the PIN typed at the counter is not left signed in on the tablet.",
+            "title": "Once",
+            "type": "boolean"
+          },
           "pin": {
             "maxLength": 8,
             "minLength": 1,
@@ -854,6 +860,13 @@
       },
       "PinIn": {
         "properties": {
+          "current_pin": {
+            "default": "",
+            "description": "The PIN in use now. Required once the default PIN has been changed, so a token left signed in on a tablet can't be used to lock the owner out.",
+            "maxLength": 8,
+            "title": "Current Pin",
+            "type": "string"
+          },
           "new_pin": {
             "title": "New Pin",
             "type": "string"
@@ -1061,7 +1074,7 @@
     },
     "/api/admin/login": {
       "post": {
-        "description": "Returns a bearer token for the admin endpoints. The default PIN is 1234 until changed, and\nwith it the token can only change the PIN. After 5 wrong PINs from one device, sign-in from it\nis locked for 30 s, doubling with every further wrong PIN (429 with `Retry-After`); 30 wrong\nPINs from anywhere within 10 minutes lock sign-in for everyone for a while.",
+        "description": "Returns a bearer token for the admin endpoints. The default PIN is 1234 until changed, and\nwith it the token can only change the PIN. After 5 wrong PINs from one device, sign-in from it\nis locked for 30 s, doubling with every further wrong PIN (429 with `Retry-After`); 30 wrong\nPINs from anywhere within 10 minutes lock sign-in for everyone for a while.\n\nWith `once: true` the token lasts only a few minutes (the counter's PIN prompt asks for one per\naction); otherwise it lasts the admin session length (12 hours).",
         "operationId": "login_api_admin_login_post",
         "requestBody": {
           "content": {
@@ -1226,7 +1239,7 @@
     },
     "/api/admin/pin": {
       "post": {
-        "description": "Sets a new 4-8 digit PIN. Other signed-in admin sessions are signed out; a fresh token is returned.",
+        "description": "Sets a new 4-8 digit PIN. Once the default PIN has been changed, `current_pin` must be the\nPIN in use now; a wrong one counts as a wrong PIN for the sign-in lockout. Other signed-in admin\nsessions are signed out; a fresh token is returned.",
         "operationId": "change_pin_api_admin_pin_post",
         "parameters": [
           {
@@ -1267,6 +1280,26 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The new PIN isn't 4-8 digits or is 1234, or `current_pin` is wrong."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Admin PIN required: send `Authorization: Bearer <token>` from `POST /api/admin/login`."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1276,6 +1309,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Too many wrong PINs (`Retry-After` says how many seconds to wait)."
           }
         },
         "summary": "Change the admin PIN",

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal, get_args
 
 from pydantic import Field, field_validator
 
 from waffle_pos.modules.base import Module, ModuleSettings
-from waffle_pos.schemas import _image
+from waffle_pos.schemas import MAX_MONEY, _image
+
+# The only address the Google Sheet sync will post to (integrations/sheets.py checks it again).
+WEB_APP_URL_RE = re.compile(r"^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$")
 
 Color = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$", json_schema_extra={"format": "color"})]
 PaymentMethod = Literal["upi", "cash", "card"]
@@ -63,7 +67,7 @@ class BillingSettings(ModuleSettings):
 
 
 class TargetSettings(ModuleSettings):
-    default_target: float = Field(100000, gt=0, title="Default monthly target (₹)")
+    default_target: float = Field(100000, gt=0, le=MAX_MONEY * 10, title="Default monthly target (₹)")
     slow_mover_pct: float = Field(
         5,
         ge=0,
@@ -72,7 +76,7 @@ class TargetSettings(ModuleSettings):
         description="An item is a slow mover if it sold less than this % of the best item's units (30 days).",
     )
     low_margin_pct: float = Field(55, ge=0, le=100, title="Warn when a popular item's margin is below (%)")
-    expense_categories: list[str] = Field(
+    expense_categories: list[Annotated[str, Field(max_length=30)]] = Field(
         default_factory=lambda: [
             "rent",
             "salary",
@@ -132,7 +136,7 @@ class GoogleSheetsSettings(ModuleSettings):
     @classmethod
     def _check_url(cls, v: str) -> str:
         v = v.strip()
-        if v and not v.startswith("https://script.google.com/macros/s/"):
+        if v and not WEB_APP_URL_RE.match(v):
             raise ValueError(
                 "must be the Apps Script web app URL, https://script.google.com/macros/s/.../exec"
             )
@@ -149,13 +153,13 @@ class GoogleSheetsSettings(ModuleSettings):
 
 class WhatsAppSettings(ModuleSettings):
     business_number: str = Field("", title="WhatsApp Business number", max_length=20)
-    delivery_buildings: list[str] = Field(
+    delivery_buildings: list[Annotated[str, Field(max_length=60)]] = Field(
         default_factory=list,
         max_length=50,
         title="Buildings we deliver to",
         description="Tower / building names in the apartment complex.",
     )
-    min_order: float = Field(0, ge=0, title="Minimum order for delivery (₹)")
+    min_order: float = Field(0, ge=0, le=MAX_MONEY, title="Minimum order for delivery (₹)")
 
 
 SHOP = Module(

@@ -813,6 +813,7 @@ curl http://localhost:4000/api/config
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `pin` | string, 1-8 chars | yes | `"1234"` until changed. Anything that isn't 4 to 8 digits is simply a wrong PIN. |
+| `once` | boolean | no | `true` for a token that lasts only 2 minutes. The counter's PIN prompt uses one per action (cancel, expense, target) and never stores it. Default `false`: the token lasts 12 hours (the Admin page). |
 
 ```bash
 curl -X POST http://localhost:4000/api/admin/login -H 'Content-Type: application/json' \
@@ -837,13 +838,16 @@ Errors: 401 `Wrong PIN`, 429 `Too many wrong PINs. Try again in 30 seconds.` (wi
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `new_pin` | string | yes | 4 to 8 digits, not `1234`. |
+| `current_pin` | string | once changed | The PIN in use now. Not needed for the first change from `1234`. A wrong one answers 400 and counts as a wrong PIN for the lockout. |
 
 Needs a valid token, and is the only Admin endpoint that also accepts a token from the default PIN
-1234. Signs out every other admin session. Use the token in the response from now on.
+1234. Asking for the current PIN means a token left on a tablet can't be used to take over the PIN. Signs out every other admin session. Use the token in the response from now on.
 
 ```bash
 curl -X POST http://localhost:4000/api/admin/pin -H "Authorization: Bearer $T" \
   -H 'Content-Type: application/json' -d '{"new_pin": "4821"}'
+# later changes also send the PIN in use now:
+#   -d '{"new_pin": "730195", "current_pin": "4821"}'
 ```
 
 ```json
@@ -854,7 +858,8 @@ curl -X POST http://localhost:4000/api/admin/pin -H "Authorization: Bearer $T" \
 }
 ```
 
-Errors: 400 `PIN must be 4 to 8 digits`, 400 `Choose a PIN other than the default 1234`, 401.
+Errors: 400 `PIN must be 4 to 8 digits`, 400 `Choose a PIN other than the default 1234`, 400
+`Your current PIN is wrong`, 401, 429 `Too many wrong PINs...` (with `Retry-After`).
 
 ### `GET /api/admin/modules`: modules with their settings forms (Admin)
 

@@ -131,7 +131,9 @@ function PinScreen({ onSignedIn }) {
 }
 
 // ---------- change PIN ----------
+// `compact` is the first-run form (default PIN 1234 still set), which needs no current PIN.
 function ChangePin({ onChanged, compact }) {
+  const [cur, setCur] = useState('');
   const [p1, setP1] = useState('');
   const [p2, setP2] = useState('');
   const [err, setErr] = useState('');
@@ -143,24 +145,30 @@ function ChangePin({ onChanged, compact }) {
     if (!valid) { setErr('The PIN must be 4 to 8 digits.'); return; }
     if (p1 !== p2) { setErr('The two PINs do not match.'); return; }
     if (p1 === '1234') { setErr('Pick a PIN other than 1234.'); return; }
+    if (!compact && cur.length < 4) { setErr('Enter your current PIN.'); return; }
     setBusy(true); setErr('');
     try {
-      const r = await adminApi.post('/api/admin/pin', { new_pin: p1 });
+      const r = await adminApi.post('/api/admin/pin', compact ? { new_pin: p1 } : { new_pin: p1, current_pin: cur });
       rememberPinLength(p1.length);
-      setP1(''); setP2('');
+      setCur(''); setP1(''); setP2('');
       onChanged(r);
     } catch (ex) { if (ex.status !== 401) setErr(ex.message); }
     setBusy(false);
   };
   return (
     <form className={compact ? 'pin-form compact' : 'pin-form'} onSubmit={save}>
+      {!compact && (
+        <label className="field">Current PIN
+          <input type="password" inputMode="numeric" autoComplete="current-password" value={cur} onChange={(e) => { setCur(digits(e.target.value)); setErr(''); }} />
+        </label>
+      )}
       <label className="field">New PIN
         <input type="password" inputMode="numeric" autoComplete="new-password" value={p1} onChange={(e) => { setP1(digits(e.target.value)); setErr(''); }} placeholder="4–8 digits" />
       </label>
       <label className="field">Confirm new PIN
         <input type="password" inputMode="numeric" autoComplete="new-password" value={p2} onChange={(e) => { setP2(digits(e.target.value)); setErr(''); }} />
       </label>
-      <button className="btn primary" disabled={busy || !p1 || !p2}>{busy ? 'Saving…' : 'Change PIN'}</button>
+      <button className="btn primary" disabled={busy || !p1 || !p2 || (!compact && !cur)}>{busy ? 'Saving…' : 'Change PIN'}</button>
       {err && <p className="err full" style={{ margin: 0 }}>{err}</p>}
     </form>
   );
@@ -763,6 +771,7 @@ function BackupTab({ notify }) {
 }
 
 // ---------- page ----------
+const IDLE_MS = 15 * 60 * 1000;
 const TABS = [['menu', 'Menu'], ['modules', 'Modules'], ['security', 'Security'], ['backup', 'Backup']];
 
 export default function Admin({ notify, onChange }) {
@@ -784,6 +793,18 @@ export default function Admin({ notify, onChange }) {
     const t = setTimeout(() => { adminSession.clear(); setSession(null); }, Math.min(ms, 2 ** 31 - 1));
     return () => clearTimeout(t);
   }, [session]);
+
+  // Sign out after IDLE_MS without a tap or key press, so an Admin session left open on a counter
+  // tablet doesn't stay usable by whoever picks it up.
+  useEffect(() => {
+    if (!session) return;
+    let t;
+    const arm = () => { clearTimeout(t); t = setTimeout(() => { adminSession.clear(); setSession(null); notify('Signed out after 15 minutes without use.'); }, IDLE_MS); };
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, arm, { passive: true }));
+    arm();
+    return () => { clearTimeout(t); events.forEach((e) => window.removeEventListener(e, arm)); };
+  }, [session, notify]);
 
   const signIn = (s) => { adminSession.set(s); setSession(s); };
   const signOut = () => { adminSession.clear(); setSession(null); };

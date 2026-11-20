@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 from importlib import resources
@@ -29,7 +28,7 @@ from sqlalchemy.orm import Session, selectinload, sessionmaker
 from waffle_pos import clock
 from waffle_pos.db.models import Expense, Order
 from waffle_pos.db.session import session_scope
-from waffle_pos.modules.builtin import GoogleSheetsSettings
+from waffle_pos.modules.builtin import WEB_APP_URL_RE, GoogleSheetsSettings
 from waffle_pos.modules.registry import is_enabled, settings_of, store_internal
 from waffle_pos.schemas import SyncResult
 from waffle_pos.services import analytics
@@ -37,7 +36,6 @@ from waffle_pos.services.targets import money
 
 logger = logging.getLogger(__name__)
 
-WEB_APP_URL_RE = re.compile(r"^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$")
 ORDER_BATCH = 500  # rows per run, so one huge backlog can't time out a sync
 DAILY_DAYS = 90
 HTTP_TIMEOUT = 60.0  # Apps Script can take a few seconds to start
@@ -107,7 +105,8 @@ def _round_half_up(x: float) -> int:
     return math.floor(x + 0.5)
 
 
-FORMULA_START = ("=", "+", "-", "@")
+# Leading tab / carriage return can also start a formula once pasted (OWASP CSV injection list).
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _cell(value: Cell) -> Cell:

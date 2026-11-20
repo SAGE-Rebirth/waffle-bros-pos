@@ -38,9 +38,11 @@ def _image(v: str | None) -> str | None:
     refused so the screens never load anything from the internet (no tracking, works offline)."""
     if v is None or v == "":
         return None
-    if re.fullmatch(r"data:image/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+", v) or re.fullmatch(
-        r"/(?!/)[A-Za-z0-9._/-]*", v
-    ):
+    if re.fullmatch(r"data:image/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+", v):
+        return v
+    # A path to a picture this server serves: no `..`, no `//`, and nothing under /api/.
+    local = re.fullmatch(r"/(?!/)[A-Za-z0-9._/-]*", v)
+    if local and ".." not in v and "//" not in v and not v.startswith("/api"):
         return v
     raise ValueError("must be an uploaded image (data:image/...) or a path on this server")
 

@@ -23,6 +23,7 @@ DEFAULT_PIN = "1234"
 MIN_PIN_LENGTH = 4
 MAX_PIN_LENGTH = 8
 MAX_TOKEN_LENGTH = 100
+ONCE_SECONDS = 120  # a counter PIN prompt's token: enough for one action and its retry
 
 
 class AuthError(PermissionError):
@@ -76,8 +77,10 @@ def _secret(session: Session) -> bytes:
     return bytes.fromhex(cfg.token_secret)
 
 
-def issue_token(session: Session, now: float | None = None) -> tuple[str, int]:
-    expires = int((now or time.time()) + _admin(session).session_hours * 3600)
+def issue_token(session: Session, now: float | None = None, seconds: int | None = None) -> tuple[str, int]:
+    """A token valid for ``seconds`` (default: the admin session length, ``session_hours``)."""
+    lifetime = _admin(session).session_hours * 3600 if seconds is None else seconds
+    expires = int((now or time.time()) + lifetime)
     sig = hmac.new(_secret(session), str(expires).encode(), hashlib.sha256).hexdigest()
     return f"{expires}.{sig}", expires
 

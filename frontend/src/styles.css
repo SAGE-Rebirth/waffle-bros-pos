@@ -385,7 +385,7 @@ input.invalid { border-color: var(--bad); box-shadow: 0 0 0 3px rgba(179, 38, 30
 .shake { animation: shake 0.35s; }
 @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
 
-.pin-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+.pin-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; align-items: end; }
 .pin-form .full { grid-column: 1 / -1; }
 .pin-form.compact { margin-top: 10px; max-width: 560px; }
 .pin-form.compact input { padding: 7px 10px; }
